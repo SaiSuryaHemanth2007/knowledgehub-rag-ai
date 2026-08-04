@@ -1,0 +1,5 @@
+KnowledgeHub RAG AI
+
+TXT processor test
+
+This file will be used for chunking.

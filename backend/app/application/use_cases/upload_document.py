@@ -1,5 +1,8 @@
 from fastapi import UploadFile
 
+from app.application.services.document_processing.document_processor import (
+    DocumentProcessor,
+)
 from app.application.services.file_storage import FileStorageService
 from app.domain.entities.document import Document
 from app.infrastructure.repositories.document_repository import (
@@ -9,8 +12,7 @@ from app.infrastructure.repositories.document_repository import (
 
 class UploadDocumentUseCase:
     """
-    Uploads a document and stores both
-    the physical file and its metadata.
+    Handles uploading and processing documents.
     """
 
     def __init__(
@@ -20,6 +22,7 @@ class UploadDocumentUseCase:
     ):
         self.repository = repository
         self.storage = storage
+        self.processor = DocumentProcessor()
 
     def execute(
         self,
@@ -27,25 +30,30 @@ class UploadDocumentUseCase:
         file: UploadFile,
     ) -> Document:
         """
-        Upload a document.
-
-        Steps:
-        1. Save file to disk
-        2. Create Document entity
-        3. Save metadata to database
-        4. Return saved document
+        Upload a document, extract its text,
+        and store its metadata.
         """
 
-        stored_filename, file_type, file_size = (
-            self.storage.save_file(file)
+        # Save uploaded file
+        saved_file = self.storage.save(file)
+
+        # Extract document text
+        extracted_text = self.processor.extract_text(
+            saved_file["path"]
         )
 
+        # Temporary verification
+        print("\n========== EXTRACTED TEXT ==========\n")
+        print(extracted_text[:500])
+        print("\n====================================\n")
+
+        # Create database entity
         document = Document(
             title=title,
-            original_filename=file.filename,
-            stored_filename=stored_filename,
-            file_type=file_type,
-            file_size=file_size,
+            original_filename=saved_file["original_filename"],
+            stored_filename=saved_file["stored_filename"],
+            file_type=saved_file["file_type"],
+            file_size=saved_file["file_size"],
         )
 
         return self.repository.create(document)

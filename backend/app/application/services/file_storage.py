@@ -11,37 +11,36 @@ class FileStorageService:
 
     def __init__(self, upload_dir: str = "uploads"):
         self.upload_dir = Path(upload_dir)
-
         self.upload_dir.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-    def save_file(
+    def save(
         self,
         file: UploadFile,
-    ) -> tuple[str, str, int]:
+    ) -> dict:
         """
-        Saves an uploaded file to disk.
+        Save an uploaded file.
 
         Returns:
-            tuple:
-                stored_filename,
-                content_type,
-                file_size
+            Dictionary containing file metadata.
         """
 
-        # Get the original file extension (.pdf, .docx, etc.)
-        extension = Path(file.filename).suffix
+        extension = Path(file.filename).suffix.lower()
 
-        # Generate a unique filename
         stored_filename = f"{uuid4()}{extension}"
+
         destination = self.upload_dir / stored_filename
+
         content = file.file.read()
+
         destination.write_bytes(content)
 
-        return (
-            stored_filename,
-            file.content_type,
-            len(content),
-        )
+        return {
+            "path": str(destination),
+            "original_filename": file.filename,
+            "stored_filename": stored_filename,
+            "file_type": file.content_type,
+            "file_size": len(content),
+        }

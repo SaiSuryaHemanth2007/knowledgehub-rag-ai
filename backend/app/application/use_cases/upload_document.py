@@ -1,4 +1,5 @@
 from fastapi import UploadFile
+from sqlalchemy.orm import Session
 
 from app.application.services.document_processing.document_processor import (
     DocumentProcessor,
@@ -6,6 +7,9 @@ from app.application.services.document_processing.document_processor import (
 from app.application.services.file_storage import FileStorageService
 from app.application.services.pipeline.document_processing_pipeline import (
     DocumentProcessingPipeline,
+)
+from app.application.services.pipeline.embedding_storage_pipeline import (
+    EmbeddingStoragePipeline,
 )
 from app.domain.entities.document import Document
 from app.infrastructure.repositories.document_repository import (
@@ -15,18 +19,20 @@ from app.infrastructure.repositories.document_repository import (
 
 class UploadDocumentUseCase:
     """
-    Handles uploading and processing documents.
+    Handles the complete document ingestion pipeline.
     """
 
     def __init__(
         self,
         repository: DocumentRepository,
         storage: FileStorageService,
+        db: Session,
     ):
         self.repository = repository
         self.storage = storage
         self.document_processor = DocumentProcessor()
-        self.pipeline = DocumentProcessingPipeline()
+        self.processing_pipeline = DocumentProcessingPipeline()
+        self.embedding_storage_pipeline = EmbeddingStoragePipeline(db)
 
     def execute(
         self,
@@ -34,8 +40,7 @@ class UploadDocumentUseCase:
         file: UploadFile,
     ) -> Document:
         """
-        Upload, extract text, generate chunks,
-        and store document metadata.
+        Upload, process, embed, and store a document.
         """
 
         # Save uploaded file
@@ -46,7 +51,7 @@ class UploadDocumentUseCase:
             saved_file["path"]
         )
 
-        # Create database record
+        # Create document
         document = Document(
             title=title,
             original_filename=saved_file["original_filename"],
@@ -57,8 +62,8 @@ class UploadDocumentUseCase:
 
         document = self.repository.create(document)
 
-        # Generate chunks
-        chunks = self.pipeline.process(
+        # Chunk document
+        chunks = self.processing_pipeline.process(
             document_id=document.id,
             extracted_text=extracted_text,
         )
@@ -67,10 +72,10 @@ class UploadDocumentUseCase:
         print(f"Document ID : {document.id}")
         print(f"Chunks      : {len(chunks)}")
 
-        if chunks:
-            print("\nFirst Chunk:\n")
-            print(chunks[0].content[:300])
+        # Generate embeddings and store
+        self.embedding_storage_pipeline.process(chunks)
 
-        print("\n======================================\n")
+        print("✓ Embeddings stored successfully")
+        print("======================================\n")
 
         return document

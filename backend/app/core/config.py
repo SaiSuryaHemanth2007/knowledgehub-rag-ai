@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # ==========================
     LOG_LEVEL: str = "INFO"
 
+    EMBEDDING_MODEL: str = "gemini-embedding-001"
+    EMBEDDING_DIMENSION: int = 3072
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

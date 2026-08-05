@@ -4,11 +4,9 @@ from dataclasses import dataclass
 @dataclass
 class Chunk:
     """
-    Represents a chunk of extracted document text.
+    Pure domain entity representing a chunk of text.
     """
 
     document_id: int
-
     chunk_index: int
-
     content: str

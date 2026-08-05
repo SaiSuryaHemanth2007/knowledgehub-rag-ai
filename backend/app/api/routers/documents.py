@@ -1,19 +1,10 @@
-from fastapi import (
-    APIRouter,
-    Depends,
-    File,
-    Form,
-    UploadFile,
-    status,
-)
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.dependencies.database import get_db
-from app.api.schemas.document import DocumentResponse
 from app.application.services.file_storage import FileStorageService
-from app.application.use_cases.upload_document import (
-    UploadDocumentUseCase,
-)
+from app.application.use_cases.upload_document import UploadDocumentUseCase
+from app.domain.entities.document import Document
+from app.infrastructure.database.session import get_db
 from app.infrastructure.repositories.document_repository import (
     DocumentRepository,
 )
@@ -26,8 +17,9 @@ router = APIRouter(
 
 @router.post(
     "/upload",
-    response_model=DocumentResponse,
-    status_code=status.HTTP_201_CREATED,
+    response_model=Document,
+    status_code=201,
+    summary="Upload a document and store its metadata.",
 )
 def upload_document(
     title: str = Form(...),
@@ -35,15 +27,18 @@ def upload_document(
     db: Session = Depends(get_db),
 ):
     """
-    Upload a document and store its metadata.
+    Upload a document, process it, generate embeddings,
+    and store chunks in PostgreSQL.
     """
 
     repository = DocumentRepository(db)
+
     storage = FileStorageService()
 
     use_case = UploadDocumentUseCase(
         repository=repository,
         storage=storage,
+        db=db,
     )
 
     return use_case.execute(

@@ -1,37 +1,28 @@
+from dataclasses import dataclass
 from datetime import datetime
-from sqlalchemy import String, Integer, DateTime
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.infrastructure.database.base import Base
+from typing import Optional
 
 
-class Document(Base):
-    __tablename__ = "documents"
+@dataclass
+class Document:
+    """
+    Pure domain entity representing a document.
+    """
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Optional[int] = None
 
-    title: Mapped[str] = mapped_column(String(255))
+    title: str = ""
 
-    original_filename: Mapped[str] = mapped_column(String(255))
+    original_filename: str = ""
 
-    stored_filename: Mapped[str] = mapped_column(String(255), unique=True)
+    stored_filename: str = ""
 
-    file_type: Mapped[str] = mapped_column(String(20))
+    file_type: str = ""
 
-    file_size: Mapped[int] = mapped_column(Integer)
+    file_size: int = 0
 
-    status: Mapped[str] = mapped_column(
-        String(50),
-        default="uploaded",
-    )
+    status: str = "uploaded"
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-    )
+    created_at: Optional[datetime] = None
 
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-    )
+    updated_at: Optional[datetime] = None

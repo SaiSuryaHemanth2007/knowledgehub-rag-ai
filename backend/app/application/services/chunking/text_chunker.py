@@ -28,45 +28,47 @@ class TextChunker:
 
         start = 0
         chunk_index = 0
+        text_length = len(text)
 
-        while start < len(text):
+        while start < text_length:
 
             end = min(
                 start + self.chunk_size,
-                len(text),
+                text_length,
             )
 
             # Try not to cut a word in half
-            if end < len(text):
+            if end < text_length:
+
                 while (
                     end > start
                     and not text[end].isspace()
                 ):
                     end -= 1
 
-                # If no whitespace was found,
-                # fall back to the original size.
                 if end == start:
                     end = min(
                         start + self.chunk_size,
-                        len(text),
+                        text_length,
                     )
 
             chunk_content = text[start:end].strip()
 
-            chunks.append(
-                Chunk(
-                    document_id=document_id,
-                    chunk_index=chunk_index,
-                    content=chunk_content,
+            # Skip completely empty chunks
+            if chunk_content:
+                chunks.append(
+                    Chunk(
+                        document_id=document_id,
+                        chunk_index=chunk_index,
+                        content=chunk_content,
+                    )
                 )
-            )
+                chunk_index += 1
 
-            start = max(
-                end - self.chunk_overlap,
-                start + 1,
-            )
+            # Stop once we've reached the end
+            if end >= text_length:
+                break
 
-            chunk_index += 1
+            start = end - self.chunk_overlap
 
         return chunks

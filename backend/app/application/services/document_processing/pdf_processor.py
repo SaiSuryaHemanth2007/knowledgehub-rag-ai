@@ -6,7 +6,10 @@ class PDFProcessor:
     Extracts text from PDF documents.
     """
 
-    def extract_text(self, file_path: str) -> str:
+    def extract_text(
+        self,
+        file_path: str,
+    ) -> str:
         """
         Extract all text from a PDF.
 

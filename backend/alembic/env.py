@@ -7,8 +7,11 @@ from alembic import context
 from app.core.config import settings
 from app.infrastructure.database.base import Base
 
-# Import all models so they are registered with Base.metadata
-from app.domain.entities.document import Document
+# Import all SQLAlchemy models so they are registered
+from app.infrastructure.database.models import (
+    DocumentModel,
+    ChunkModel,
+)
 
 # Alembic Config object
 config = context.config

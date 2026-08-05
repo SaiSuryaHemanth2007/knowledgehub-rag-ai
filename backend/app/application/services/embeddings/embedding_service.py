@@ -34,7 +34,7 @@ class EmbeddingService:
             try:
 
                 response = self.client.models.embed_content(
-                    model="gemini-embedding-001",
+                    model=settings.EMBEDDING_MODEL,
                     contents=texts,
                 )
 

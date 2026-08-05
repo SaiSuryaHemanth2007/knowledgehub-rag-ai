@@ -29,34 +29,41 @@ class Settings(BaseSettings):
     # Database
     # ==========================
     DATABASE_URL: str = (
-    "postgresql+psycopg://postgres:postgres@localhost:5432/knowledgehub"
+        "postgresql+psycopg://postgres:postgres@localhost:5432/knowledgehub"
     )
 
     # ==========================
     # Security
     # ==========================
     SECRET_KEY: str = "CHANGE_ME"
-
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # ==========================
     # AI Providers
     # ==========================
-    GROQ_API_KEY: str = ""
-
-    # Future
-    OPENAI_API_KEY: str = ""
     GOOGLE_API_KEY: str = ""
+
+    GROQ_API_KEY: str
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Future Providers
+    OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+
+    # ==========================
+    # Embedding
+    # ==========================
+    EMBEDDING_MODEL: str = "gemini-embedding-001"
+    EMBEDDING_DIMENSION: int = 3072
 
     # ==========================
     # Logging
     # ==========================
     LOG_LEVEL: str = "INFO"
 
-    EMBEDDING_MODEL: str = "gemini-embedding-001"
-    EMBEDDING_DIMENSION: int = 3072
-
+    # ==========================
+    # Pydantic Settings
+    # ==========================
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

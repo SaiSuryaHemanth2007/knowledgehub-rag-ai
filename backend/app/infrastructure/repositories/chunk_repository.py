@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.domain.entities.chunk import Chunk
 from app.infrastructure.database.models.chunk import ChunkModel
@@ -18,6 +18,9 @@ class ChunkRepository:
         chunks: list[Chunk],
         embeddings: list[list[float]],
     ) -> None:
+        """
+        Store chunks together with their embeddings.
+        """
 
         chunk_models = []
 
@@ -38,13 +41,31 @@ class ChunkRepository:
         self,
         embedding: list[float],
         limit: int = 5,
-    ) -> list[ChunkModel]:
+    ) -> list[dict]:
         """
-        Perform semantic similarity search using pgvector ORM.
+        Perform semantic similarity search using pgvector.
+
+        Returns:
+            [
+                {
+                    "chunk": ChunkModel,
+                    "score": float,
+                }
+            ]
         """
 
-        return (
-            self.db.query(ChunkModel)
+        results = (
+            self.db.query(
+                ChunkModel,
+                ChunkModel.embedding.cosine_distance(
+                    embedding
+                ).label("distance"),
+            )
+            .options(
+                joinedload(
+                    ChunkModel.document
+                )
+            )
             .order_by(
                 ChunkModel.embedding.cosine_distance(
                     embedding
@@ -53,6 +74,17 @@ class ChunkRepository:
             .limit(limit)
             .all()
         )
+
+        return [
+            {
+                "chunk": chunk,
+                "score": round(
+                    1 - distance,
+                    4,
+                ),
+            }
+            for chunk, distance in results
+        ]
 
     def get_by_document(
         self,

@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from app.application.services.embeddings.embedding_service import (
     EmbeddingService,
 )
-from app.infrastructure.database.models.chunk import ChunkModel
 from app.infrastructure.repositories.chunk_repository import (
     ChunkRepository,
 )
@@ -12,7 +11,8 @@ from app.infrastructure.repositories.chunk_repository import (
 class RetrievalService:
     """
     Generates an embedding for a user query and retrieves
-    the most relevant document chunks.
+    the most relevant document chunks together with
+    their similarity scores.
     """
 
     def __init__(self, db: Session):
@@ -23,13 +23,23 @@ class RetrievalService:
         self,
         question: str,
         limit: int = 5,
-    ) -> list[ChunkModel]:
+    ) -> list[dict]:
         """
         Retrieve the most semantically relevant chunks.
+
+        Returns:
+            [
+                {
+                    "chunk": ChunkModel,
+                    "score": float,
+                }
+            ]
         """
 
-        query_embedding = self.embedding_service.generate_embedding(
-            question
+        query_embedding = (
+            self.embedding_service.generate_embedding(
+                question
+            )
         )
 
         return self.chunk_repository.search_by_embedding(

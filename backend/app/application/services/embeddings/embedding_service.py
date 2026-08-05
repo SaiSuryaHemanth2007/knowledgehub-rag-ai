@@ -8,8 +8,11 @@ from app.core.config import settings
 
 class EmbeddingService:
     """
-    Generates embeddings using Gemini Embedding.
-    Automatically handles Gemini free-tier rate limits.
+    Generates embeddings using Gemini Embedding API.
+
+    Uses true batch embedding requests to reduce
+    API calls and automatically retries on
+    Gemini free-tier rate limits.
     """
 
     def __init__(self):
@@ -17,50 +20,28 @@ class EmbeddingService:
             api_key=settings.GOOGLE_API_KEY,
         )
 
-    def generate_embedding(
-        self,
-        text: str,
-    ) -> list[float]:
-        """
-        Generate an embedding for a single text.
-        """
-
-        response = self.client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=text,
-        )
-
-        return response.embeddings[0].values
-
     def generate_embeddings(
         self,
         texts: list[str],
     ) -> list[list[float]]:
         """
-        Generate embeddings for multiple texts.
-        Automatically retries when the Gemini free-tier
-        rate limit is reached.
+        Generate embeddings for multiple texts
+        in a single Gemini API request.
         """
 
-        embeddings = []
-
-        total = len(texts)
-
-        index = 0
-
-        while index < total:
-
-            print(f"Embedding {index + 1}/{total}")
+        while True:
 
             try:
 
-                embedding = self.generate_embedding(
-                    texts[index]
+                response = self.client.models.embed_content(
+                    model="gemini-embedding-001",
+                    contents=texts,
                 )
 
-                embeddings.append(embedding)
-
-                index += 1
+                return [
+                    embedding.values
+                    for embedding in response.embeddings
+                ]
 
             except ClientError as e:
 
@@ -74,16 +55,25 @@ class EmbeddingService:
                     print()
                     print("=" * 60)
                     print("Gemini rate limit reached.")
-                    print("Waiting 60 seconds before retrying...")
+                    print("Waiting 60 seconds before retrying batch...")
                     print("=" * 60)
                     print()
 
                     time.sleep(60)
 
-                    # Retry the same chunk
                     continue
 
-                # Any other error should stop execution
                 raise
 
-        return embeddings
+    def generate_embedding(
+        self,
+        text: str,
+    ) -> list[float]:
+        """
+        Convenience method for generating a
+        single embedding.
+        """
+
+        return self.generate_embeddings(
+            [text]
+        )[0]

@@ -4,5 +4,9 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+
   response?: ChatResponse;
+
+  // NEW
+  question?: string;
 }

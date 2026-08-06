@@ -1,3 +1,5 @@
+from typing import Generator
+
 from sqlalchemy.orm import Session
 
 from app.application.services.llm.groq_service import GroqService
@@ -81,7 +83,6 @@ class RAGService:
         sources = []
 
         for result in results:
-
             chunk = result["chunk"]
 
             sources.append(
@@ -104,3 +105,40 @@ class RAGService:
             "answer": answer,
             "sources": sources,
         }
+
+    def stream_ask(
+        self,
+        question: str,
+        limit: int = 5,
+    ) -> Generator[str, None, None]:
+        """
+        Stream an answer token-by-token using
+        Retrieval-Augmented Generation.
+        """
+
+        # Retrieve relevant chunks
+        results = self.retrieval_service.retrieve(
+            question=question,
+            limit=limit,
+        )
+
+        if not results:
+            yield "I couldn't find any relevant information in the uploaded documents."
+            return
+
+        # Build context
+        context = self.context_builder.build(results)
+
+        # Build prompts
+        system_prompt, user_prompt = (
+            self.prompt_builder.build(
+                context=context,
+                question=question,
+            )
+        )
+
+        # Stream directly from Groq
+        yield from self.llm.stream_generate(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )

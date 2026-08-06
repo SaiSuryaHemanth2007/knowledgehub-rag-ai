@@ -1,28 +1,58 @@
+"use client";
+
+import {
+  MessageSquare,
+  Upload,
+  Files,
+  Settings,
+} from "lucide-react";
+
+const menuItems = [
+  {
+    title: "Chat",
+    icon: MessageSquare,
+  },
+  {
+    title: "Upload",
+    icon: Upload,
+  },
+  {
+    title: "Documents",
+    icon: Files,
+  },
+  {
+    title: "Settings",
+    icon: Settings,
+  },
+];
+
 export default function Sidebar() {
   return (
-    <aside className="h-screen w-72 border-r bg-white p-6 shadow-sm">
+    <aside className="flex h-screen w-72 flex-col border-r bg-white shadow-sm">
 
-      <h2 className="mb-8 text-2xl font-bold">
-        KnowledgeHub
-      </h2>
+      <div className="border-b p-6">
+        <h1 className="text-2xl font-bold">
+          KnowledgeHub
+        </h1>
+      </div>
 
-      <nav className="space-y-4">
+      <nav className="flex-1 p-4">
 
-        <button className="block w-full rounded-lg p-3 text-left hover:bg-gray-100">
-          💬 Chat
-        </button>
+        {menuItems.map((item) => {
+          const Icon = item.icon;
 
-        <button className="block w-full rounded-lg p-3 text-left hover:bg-gray-100">
-          📄 Upload
-        </button>
+          return (
+            <button
+              key={item.title}
+              className="mb-2 flex w-full items-center gap-3 rounded-lg p-3 transition hover:bg-gray-100"
+            >
+              <Icon size={20} />
 
-        <button className="block w-full rounded-lg p-3 text-left hover:bg-gray-100">
-          📚 Documents
-        </button>
+              <span>{item.title}</span>
 
-        <button className="block w-full rounded-lg p-3 text-left hover:bg-gray-100">
-          ⚙ Settings
-        </button>
+            </button>
+          );
+        })}
 
       </nav>
 

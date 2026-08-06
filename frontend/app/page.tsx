@@ -1,5 +1,7 @@
 import Header from "@/components/layout/Header";
 import Sidebar from "@/components/layout/Sidebar";
+import ChatInput from "@/components/chat/ChatInput";
+import SuggestionCards from "@/components/chat/SuggestionCards";
 
 export default function Home() {
   return (
@@ -12,16 +14,22 @@ export default function Home() {
         {/* Header */}
         <Header />
 
-        {/* Content */}
+        {/* ChatGPT-style Home */}
         <main className="flex flex-1 items-center justify-center bg-gray-50">
-          <div className="text-center">
-            <h1 className="mb-4 text-5xl font-bold">
-              👋 Welcome to KnowledgeHub AI
+          <div className="w-full max-w-5xl px-8 text-center">
+            <h1 className="text-6xl font-bold">
+              🤖 KnowledgeHub AI
             </h1>
 
-            <p className="text-lg text-gray-500">
+            <p className="mt-4 text-xl text-gray-500">
               Ask anything about your uploaded documents.
             </p>
+
+            {/* Chat Input */}
+            <ChatInput />
+
+            {/* Suggested Prompts */}
+            <SuggestionCards />
           </div>
         </main>
       </div>

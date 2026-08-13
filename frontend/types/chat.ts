@@ -2,7 +2,7 @@ export interface ChatRequest {
   question: string;
 }
 
-export interface Source {
+export interface ChatSource {
   document_id: number;
   document_title: string;
   original_filename: string;
@@ -13,5 +13,5 @@ export interface Source {
 
 export interface ChatResponse {
   answer: string;
-  sources: Source[];
+  sources: ChatSource[];
 }

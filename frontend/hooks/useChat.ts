@@ -2,11 +2,17 @@
 
 import { useState } from "react";
 
-import { askQuestion, streamQuestion } from "@/services/chat";
+import {
+  askQuestion,
+  streamQuestion,
+} from "@/services/chat";
+
 import { ChatResponse } from "@/types/chat";
 
 export function useChat() {
-  const [loading, setLoading] = useState(false);
+
+  const [loading, setLoading] =
+    useState(false);
 
   const [response, setResponse] =
     useState<ChatResponse | null>(null);
@@ -17,23 +23,50 @@ export function useChat() {
   const [error, setError] =
     useState<string | null>(null);
 
-  async function sendMessage(question: string) {
+
+  // =====================================================
+  // Normal Chat
+  // =====================================================
+
+  async function sendMessage(
+    question: string
+  ) {
+
     try {
+
       setLoading(true);
       setError(null);
+      setResponse(null);
 
-      const result = await askQuestion(question);
+      const result =
+        await askQuestion(question);
 
       setResponse(result);
+
     } catch {
-      setError("Failed to contact server.");
+
+      setError(
+        "Failed to contact server."
+      );
+
     } finally {
+
       setLoading(false);
+
     }
   }
 
-  async function streamMessage(question: string) {
+
+  // =====================================================
+  // Streaming Chat
+  // =====================================================
+
+  async function streamMessage(
+    question: string
+  ) {
+
     try {
+
       setLoading(true);
       setError(null);
 
@@ -42,15 +75,28 @@ export function useChat() {
       await streamQuestion(
         question,
         (chunk: string) => {
-          setStreamResponse((prev) => prev + chunk);
+
+          setStreamResponse(
+            (prev) =>
+              prev + chunk
+          );
+
         }
       );
+
     } catch {
-      setError("Failed to contact server.");
+
+      setError(
+        "Failed to contact server."
+      );
+
     } finally {
+
       setLoading(false);
+
     }
   }
+
 
   return {
     loading,

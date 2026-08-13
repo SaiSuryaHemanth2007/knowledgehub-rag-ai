@@ -17,6 +17,7 @@ interface Props {
 
 export default function MessageActions({
   content,
+  onRegenerate,
 }: Props) {
   const [copied, setCopied] = useState(false);
 
@@ -96,6 +97,7 @@ export default function MessageActions({
           hover:bg-gray-100
           hover:text-black
         "
+        onClick={onRegenerate}
       >
         <RotateCcw size={16} />
 

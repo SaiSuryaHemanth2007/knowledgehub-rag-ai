@@ -33,7 +33,7 @@ export default function ChatContainer() {
 
     setMessages((prev) => [...prev, userMessage]);
 
-    await sendMessage(question);
+    await streamMessage(question);
   }
 
   useEffect(() => {

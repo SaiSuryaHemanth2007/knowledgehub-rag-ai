@@ -12,6 +12,11 @@ class ChatRequest(BaseModel):
         description="User question",
     )
 
+    conversation_id: int | None = Field(
+        default=None,
+        description="Existing conversation ID.",
+    )
+
 
 class SourceResponse(BaseModel):
     """
@@ -33,3 +38,5 @@ class ChatResponse(BaseModel):
 
     answer: str
     sources: list[SourceResponse]
+
+    conversation_id: int | None = None

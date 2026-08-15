@@ -15,7 +15,10 @@ class RAGService:
     End-to-end Retrieval-Augmented Generation service.
 
     Pipeline:
+
         Question
+            ↓
+        Conversation History
             ↓
         RetrievalService
             ↓
@@ -37,21 +40,41 @@ class RAGService:
         self.prompt_builder = PromptBuilder()
         self.llm = GroqService()
 
+    # =======================================================
+    # Normal RAG
+    # =======================================================
+
     def ask(
         self,
         question: str,
         limit: int = 5,
+        history: list | None = None,
     ) -> dict:
         """
-        Answer a question using the complete
-        Retrieval-Augmented Generation pipeline.
+        Answer a question using Retrieval-Augmented Generation
+        and optional conversation history.
         """
 
-        # Retrieve relevant chunks
+        # ---------------------------------------------------
+        # Normalize conversation history
+        # ---------------------------------------------------
+
+        conversation_history = (
+            history if history is not None else []
+        )
+
+        # ---------------------------------------------------
+        # Retrieve relevant document chunks
+        # ---------------------------------------------------
+
         results = self.retrieval_service.retrieve(
             question=question,
             limit=limit,
         )
+
+        # ---------------------------------------------------
+        # No relevant documents
+        # ---------------------------------------------------
 
         if not results:
             return {
@@ -62,36 +85,181 @@ class RAGService:
                 "sources": [],
             }
 
-        # Build context
-        context = self.context_builder.build(results)
+        # ---------------------------------------------------
+        # Build document context
+        # ---------------------------------------------------
 
+        context = self.context_builder.build(
+            results
+        )
+
+        # ---------------------------------------------------
         # Build prompts
+        # ---------------------------------------------------
+
         system_prompt, user_prompt = (
             self.prompt_builder.build(
                 context=context,
                 question=question,
+                history=conversation_history,
             )
         )
 
-        # Generate answer
+        # ---------------------------------------------------
+        # Generate complete answer
+        # ---------------------------------------------------
+
         answer = self.llm.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
         )
 
+        # ---------------------------------------------------
         # Build source metadata
+        # ---------------------------------------------------
+
+        sources = self._build_sources(
+            results
+        )
+
+        return {
+            "answer": answer,
+            "sources": sources,
+        }
+
+    # =======================================================
+    # Streaming RAG
+    # =======================================================
+
+    def stream_ask(
+        self,
+        question: str,
+        conversation_history: list | None = None,
+        limit: int = 5,
+    ) -> tuple[
+        Generator[str, None, None],
+        list,
+    ]:
+        """
+        Stream an answer token-by-token using
+        Retrieval-Augmented Generation and
+        conversation history.
+
+        Returns:
+
+            token_stream:
+                Generator yielding answer chunks.
+
+            sources:
+                Retrieved document source metadata.
+        """
+
+        # ---------------------------------------------------
+        # Normalize conversation history
+        # ---------------------------------------------------
+
+        if conversation_history is None:
+            conversation_history = []
+
+        # ---------------------------------------------------
+        # Retrieve relevant document chunks
+        # ---------------------------------------------------
+
+        results = self.retrieval_service.retrieve(
+            question=question,
+            limit=limit,
+        )
+
+        # ---------------------------------------------------
+        # No relevant documents
+        # ---------------------------------------------------
+
+        if not results:
+
+            def fallback_stream():
+                yield (
+                    "I couldn't find any relevant information "
+                    "in the uploaded documents."
+                )
+
+            return fallback_stream(), []
+
+        # ---------------------------------------------------
+        # Build document context
+        # ---------------------------------------------------
+
+        context = self.context_builder.build(
+            results
+        )
+
+        # ---------------------------------------------------
+        # Build prompts
+        # ---------------------------------------------------
+
+        system_prompt, user_prompt = (
+            self.prompt_builder.build(
+                context=context,
+                question=question,
+                history=conversation_history,
+            )
+        )
+
+        # ---------------------------------------------------
+        # Build source metadata
+        # ---------------------------------------------------
+
+        sources = self._build_sources(
+            results
+        )
+
+        # ---------------------------------------------------
+        # Start Groq streaming
+        # ---------------------------------------------------
+
+        token_stream = self.llm.stream_generate(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+        return token_stream, sources
+
+    # =======================================================
+    # Source Metadata
+    # =======================================================
+
+    def _build_sources(
+        self,
+        results: list,
+    ) -> list:
+        """
+        Convert retrieval results into
+        frontend-friendly source metadata.
+        """
+
         sources = []
 
         for result in results:
+
             chunk = result["chunk"]
 
             sources.append(
                 {
                     "document_id": chunk.document_id,
-                    "document_title": chunk.document.title,
-                    "original_filename": chunk.document.original_filename,
-                    "chunk_index": chunk.chunk_index,
+
+                    "document_title": (
+                        chunk.document.title
+                    ),
+
+                    "original_filename": (
+                        chunk.document.original_filename
+                    ),
+
+                    "chunk_index": (
+                        chunk.chunk_index
+                    ),
+
                     "score": result["score"],
+
                     "preview": (
                         chunk.content[:180]
                         .replace("\n", " ")
@@ -101,44 +269,4 @@ class RAGService:
                 }
             )
 
-        return {
-            "answer": answer,
-            "sources": sources,
-        }
-
-    def stream_ask(
-        self,
-        question: str,
-        limit: int = 5,
-    ) -> Generator[str, None, None]:
-        """
-        Stream an answer token-by-token using
-        Retrieval-Augmented Generation.
-        """
-
-        # Retrieve relevant chunks
-        results = self.retrieval_service.retrieve(
-            question=question,
-            limit=limit,
-        )
-
-        if not results:
-            yield "I couldn't find any relevant information in the uploaded documents."
-            return
-
-        # Build context
-        context = self.context_builder.build(results)
-
-        # Build prompts
-        system_prompt, user_prompt = (
-            self.prompt_builder.build(
-                context=context,
-                question=question,
-            )
-        )
-
-        # Stream directly from Groq
-        yield from self.llm.stream_generate(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
+        return sources

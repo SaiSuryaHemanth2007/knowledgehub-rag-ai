@@ -7,10 +7,14 @@ import MessageActions from "./MessageActions";
 
 interface ChatBubbleProps {
   message: Message;
+  onRegenerate?: (
+    messageId: string
+  ) => void;
 }
 
 export default function ChatBubble({
   message,
+  onRegenerate,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
 
@@ -25,7 +29,11 @@ export default function ChatBubble({
           isUser ? "flex-row-reverse" : ""
         }`}
       >
-        {/* Avatar */}
+
+        {/* =================================================
+            Avatar
+            ================================================= */}
+
         <div
           className={`flex h-10 w-10 items-center justify-center rounded-full ${
             isUser
@@ -40,36 +48,63 @@ export default function ChatBubble({
           )}
         </div>
 
-        {/* Message Bubble */}
+
+        {/* =================================================
+            Message Bubble
+            ================================================= */}
+
         <div
-            className={`group rounded-2xl px-5 py-4 shadow-sm ${
-                isUser
-                    ? "bg-blue-600 text-white"
-                    : "border border-gray-200 bg-white"
-                }`}
+          className={`group rounded-2xl px-5 py-4 shadow-sm ${
+            isUser
+              ? "bg-blue-600 text-white"
+              : "border border-gray-200 bg-white"
+          }`}
         >
-          {/* Message Content */}
+
+          {/* =================================================
+              Message Content
+              ================================================= */}
+
           {isUser ? (
+
             <p className="whitespace-pre-wrap leading-7">
               {message.content}
             </p>
+
           ) : (
+
             <>
+
+              {/* Markdown Answer */}
+
               <MarkdownRenderer
                 content={message.content}
               />
 
-              {/* Message Actions */}
+
+              {/* =================================================
+                  Message Actions
+                  ================================================= */}
+
               <MessageActions
                 content={message.content}
-                onRegenerate={() =>
-                    console.log("Regenerate")
-                }
+                onRegenerate={() => {
+
+                  onRegenerate?.(
+                    message.id
+                  );
+
+                }}
               />
 
-              {/* Source Citations */}
+
+              {/* =================================================
+                  Source Citations
+                  ================================================= */}
+
               {message.response?.sources.map(
                 (source, index) => (
+
                   <SourceCard
                     key={index}
                     documentTitle={
@@ -78,15 +113,25 @@ export default function ChatBubble({
                     filename={
                       source.original_filename
                     }
-                    score={source.score}
-                    preview={source.preview}
+                    score={
+                      source.score
+                    }
+                    preview={
+                      source.preview
+                    }
                   />
+
                 )
               )}
+
             </>
+
           )}
+
         </div>
+
       </div>
+
     </div>
   );
 }

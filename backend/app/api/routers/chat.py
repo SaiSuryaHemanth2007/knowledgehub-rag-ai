@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -7,9 +9,16 @@ from app.api.schemas.chat import (
     ChatRequest,
     ChatResponse,
 )
+from app.application.services.conversation.conversation_service import (
+    ConversationService,
+)
+from app.application.services.conversation.message_service import (
+    MessageService,
+)
 from app.application.services.rag.rag_service import (
     RAGService,
 )
+
 
 router = APIRouter(
     prefix="/chat",
@@ -17,9 +26,9 @@ router = APIRouter(
 )
 
 
-# -------------------------------------------------------
-# Normal Chat Endpoint
-# -------------------------------------------------------
+# =========================================================
+# Normal Chat
+# =========================================================
 
 @router.post(
     "",
@@ -31,25 +40,85 @@ def chat(
     db: Session = Depends(get_db),
 ):
     """
-    Standard (non-streaming) RAG endpoint.
+    Standard non-streaming RAG endpoint.
     """
+
+    conversation_service = ConversationService(db)
+    message_service = MessageService(db)
+
+    # -----------------------------------------------------
+    # Create conversation if one was not supplied
+    # -----------------------------------------------------
+
+    conversation_id = request.conversation_id
+
+    if conversation_id is None:
+        conversation = conversation_service.create(
+            title=request.question[:255],
+        )
+
+        conversation_id = conversation.id
+
+    else:
+        conversation = conversation_service.get(
+            conversation_id,
+        )
+
+        if conversation is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found.",
+            )
+
+    # -----------------------------------------------------
+    # Load previous history
+    # -----------------------------------------------------
+
+    history = message_service.get_history(
+        conversation_id=conversation_id,
+    )
+
+    # -----------------------------------------------------
+    # Save user message
+    # -----------------------------------------------------
+
+    message_service.create(
+        conversation_id=conversation_id,
+        role="user",
+        content=request.question,
+    )
+
+    # -----------------------------------------------------
+    # Generate RAG answer
+    # -----------------------------------------------------
 
     rag = RAGService(db)
 
     result = rag.ask(
         question=request.question,
+        conversation_history=history,
     )
 
-    print("\n========== RAG RESULT ==========")
-    print(result)
-    print("================================\n")
+    # -----------------------------------------------------
+    # Save assistant message
+    # -----------------------------------------------------
 
-    return ChatResponse(**result)
+    message_service.create(
+        conversation_id=conversation_id,
+        role="assistant",
+        content=result["answer"],
+    )
+
+    return ChatResponse(
+        answer=result["answer"],
+        sources=result["sources"],
+        conversation_id=conversation_id,
+    )
 
 
-# -------------------------------------------------------
-# Streaming Chat Endpoint
-# -------------------------------------------------------
+# =========================================================
+# Streaming Chat
+# =========================================================
 
 @router.post(
     "/stream",
@@ -60,15 +129,140 @@ def stream_chat(
     db: Session = Depends(get_db),
 ):
     """
-    Stream an answer token-by-token using
-    Retrieval-Augmented Generation.
+    Stream an answer using RAG while maintaining
+    conversation history.
     """
+
+    conversation_service = ConversationService(db)
+    message_service = MessageService(db)
+
+    # -----------------------------------------------------
+    # Resolve conversation
+    # -----------------------------------------------------
+
+    conversation_id = request.conversation_id
+
+    if conversation_id is None:
+        conversation = conversation_service.create(
+            title=request.question[:255],
+        )
+
+        conversation_id = conversation.id
+
+    else:
+        conversation = conversation_service.get(
+            conversation_id,
+        )
+
+        if conversation is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found.",
+            )
+
+    # -----------------------------------------------------
+    # Load previous history BEFORE saving current question
+    # -----------------------------------------------------
+
+    history = message_service.get_history(
+        conversation_id=conversation_id,
+    )
+
+    # -----------------------------------------------------
+    # Save current user message
+    # -----------------------------------------------------
+
+    message_service.create(
+        conversation_id=conversation_id,
+        role="user",
+        content=request.question,
+    )
+
+    # -----------------------------------------------------
+    # Build RAG stream
+    # -----------------------------------------------------
 
     rag = RAGService(db)
 
+    token_stream, sources = rag.stream_ask(
+        question=request.question,
+        conversation_history=history,
+    )
+
+    def event_stream():
+        """
+        Convert the RAG token generator into
+        Server-Sent Events.
+        """
+
+        accumulated_answer = ""
+
+        try:
+            # ---------------------------------------------
+            # Stream tokens
+            # ---------------------------------------------
+
+            for token in token_stream:
+
+                accumulated_answer += token
+
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "type": "token",
+                            "text": token,
+                        }
+                    )
+                    + "\n\n"
+                )
+
+            # ---------------------------------------------
+            # Save complete assistant answer
+            # ---------------------------------------------
+
+            if accumulated_answer:
+                message_service.create(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=accumulated_answer,
+                )
+
+            # ---------------------------------------------
+            # Send completion event
+            # ---------------------------------------------
+
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "type": "done",
+                        "conversation_id": conversation_id,
+                        "sources": sources,
+                    }
+                )
+                + "\n\n"
+            )
+
+        except Exception as exc:
+
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "type": "error",
+                        "message": str(exc),
+                    }
+                )
+                + "\n\n"
+            )
+
     return StreamingResponse(
-        rag.stream_ask(
-            question=request.question,
-        ),
-        media_type="text/plain",
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

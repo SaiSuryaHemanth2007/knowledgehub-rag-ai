@@ -11,10 +11,13 @@ import {
 // =======================================================
 
 export async function askQuestion(
-  question: string
+  question: string,
+  conversationId?: number
 ): Promise<ChatResponse> {
+
   const payload: ChatRequest = {
     question,
+    conversation_id: conversationId,
   };
 
   const response = await api.post<ChatResponse>(
@@ -32,7 +35,12 @@ export async function askQuestion(
 
 export async function streamQuestion(
   question: string,
-  onChunk: (chunk: string) => void
+  conversationId: number | undefined,
+  onChunk: (chunk: string) => void,
+  onComplete?: (
+    sources: ChatResponse["sources"],
+    conversationId?: number
+  ) => void
 ): Promise<void> {
 
   const response = await fetch(
@@ -42,28 +50,40 @@ export async function streamQuestion(
 
       headers: {
         "Content-Type": "application/json",
+        "Accept": "text/event-stream",
       },
 
       body: JSON.stringify({
         question,
+        conversation_id: conversationId,
       }),
     }
   );
 
 
-  // Check HTTP response
+  // =====================================================
+  // HTTP Error
+  // =====================================================
+
   if (!response.ok) {
+
     throw new Error(
       `Streaming request failed: ${response.status}`
     );
+
   }
 
 
-  // Check streaming body
+  // =====================================================
+  // Streaming Body
+  // =====================================================
+
   if (!response.body) {
+
     throw new Error(
       "No response body received from server."
     );
+
   }
 
 
@@ -73,6 +93,129 @@ export async function streamQuestion(
   const decoder =
     new TextDecoder();
 
+  let buffer = "";
+
+
+  // =====================================================
+  // Process SSE Event
+  // =====================================================
+
+  const processEvent = (
+    event: string
+  ) => {
+
+    const line =
+      event
+        .split("\n")
+        .find((line) =>
+          line.startsWith("data:")
+        );
+
+
+    if (!line) {
+      return;
+    }
+
+
+    const data =
+      line
+        .replace(/^data:\s*/, "")
+        .trim();
+
+
+    if (!data) {
+      return;
+    }
+
+
+    // ===================================================
+    // Parse JSON
+    // ===================================================
+
+    let parsed: any;
+
+    try {
+
+      parsed =
+        JSON.parse(data);
+
+    } catch (error) {
+
+      console.error(
+        "Failed to parse SSE event:",
+        data,
+        error
+      );
+
+      return;
+
+    }
+
+
+    // ===================================================
+    // Token Event
+    // ===================================================
+
+    if (
+      parsed.type === "token" &&
+      typeof parsed.text === "string"
+    ) {
+
+      onChunk(
+        parsed.text
+      );
+
+      return;
+
+    }
+
+
+    // ===================================================
+    // Done Event
+    // ===================================================
+
+    if (
+      parsed.type === "done"
+    ) {
+
+      if (
+        onComplete &&
+        Array.isArray(parsed.sources)
+      ) {
+
+        onComplete(
+          parsed.sources,
+          parsed.conversation_id
+        );
+
+      }
+
+      return;
+
+    }
+
+
+    // ===================================================
+    // Error Event
+    // ===================================================
+
+    if (
+      parsed.type === "error"
+    ) {
+
+      throw new Error(
+        parsed.message ||
+        "Streaming request failed."
+      );
+
+    }
+
+  };
+
+
+  // =====================================================
+  // Read Stream
+  // =====================================================
 
   try {
 
@@ -89,27 +232,71 @@ export async function streamQuestion(
       }
 
 
-      if (value) {
+      // =================================================
+      // Decode Incoming Bytes
+      // =================================================
 
-        const chunk =
-          decoder.decode(
-            value,
-            {
-              stream: true,
-            }
-          );
+      buffer += decoder.decode(
+        value,
+        {
+          stream: true,
+        }
+      );
 
-        onChunk(chunk);
+
+      // =================================================
+      // Split SSE Events
+      // =================================================
+
+      const events =
+        buffer.split("\n\n");
+
+
+      // Keep incomplete event
+      buffer =
+        events.pop() || "";
+
+
+      // =================================================
+      // Process Complete Events
+      // =================================================
+
+      for (
+        const event of events
+      ) {
+
+        if (!event.trim()) {
+          continue;
+        }
+
+        processEvent(
+          event
+        );
+
       }
+
     }
 
 
-    // Flush remaining decoder data
-    const finalChunk =
-      decoder.decode();
+    // ===================================================
+    // Flush TextDecoder
+    // ===================================================
 
-    if (finalChunk) {
-      onChunk(finalChunk);
+    buffer += decoder.decode();
+
+
+    // ===================================================
+    // Process Final Event
+    // ===================================================
+
+    if (
+      buffer.trim()
+    ) {
+
+      processEvent(
+        buffer
+      );
+
     }
 
   } finally {
@@ -117,4 +304,5 @@ export async function streamQuestion(
     reader.releaseLock();
 
   }
+
 }

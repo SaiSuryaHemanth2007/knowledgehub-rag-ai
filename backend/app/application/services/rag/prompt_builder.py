@@ -1,17 +1,22 @@
 class PromptBuilder:
     """
     Builds prompts for the language model.
-    Returns separate system and user prompts
-    for modern chat-based LLM APIs.
+
+    The prompt contains:
+        1. Conversation history
+        2. Retrieved document context
+        3. Current question
     """
 
     SYSTEM_PROMPT = """
-You are KnowledgeHub AI, an AI assistant that answers questions using uploaded documents.
+You are KnowledgeHub AI, an AI assistant that answers questions using uploaded documents and the conversation history.
 
 Rules:
-- Answer ONLY using the provided context.
+
+- Answer using the provided document context.
+- Use conversation history to understand references such as "it", "they", "this", or "that".
 - Do NOT invent facts.
-- If the answer is not present in the context, respond:
+- If the answer is not present in the document context, respond:
   "I don't have enough information in the uploaded document."
 - If the context is incomplete, say so.
 - Keep answers clear, concise, and accurate.
@@ -22,18 +27,59 @@ Rules:
         self,
         context: str,
         question: str,
+        history: list | None = None,
     ) -> tuple[str, str]:
         """
-        Returns:
-            tuple(system_prompt, user_prompt)
+        Build system and user prompts.
         """
 
+        history_text = ""
+
+        if history:
+
+            history_lines = []
+
+            for message in history:
+
+                role = getattr(
+                    message,
+                    "role",
+                    "unknown",
+                )
+
+                content = getattr(
+                    message,
+                    "content",
+                    "",
+                )
+
+                history_lines.append(
+                    f"{role.capitalize()}: {content}"
+                )
+
+            history_text = "\n".join(
+                history_lines
+            )
+
+        else:
+
+            history_text = (
+                "No previous conversation."
+            )
+
+
         user_prompt = f"""
-Context:
+Conversation History:
+
+{history_text}
+
+
+Retrieved Document Context:
 
 {context}
 
-Question:
+
+Current Question:
 
 {question}
 """.strip()

@@ -14,7 +14,8 @@ You are KnowledgeHub AI, an AI assistant that answers questions using uploaded d
 Rules:
 
 - Answer using the provided document context.
-- Use conversation history to understand references such as "it", "they", "this", or "that".
+- Use conversation history to understand references such as "it", "they", "this", "that", "the device", or similar follow-up references.
+- The retrieved document context is the primary source of truth.
 - Do NOT invent facts.
 - If the answer is not present in the document context, respond:
   "I don't have enough information in the uploaded document."
@@ -53,20 +54,27 @@ Rules:
                     "",
                 )
 
+                if not content:
+                    continue
+
                 history_lines.append(
                     f"{role.capitalize()}: {content}"
                 )
 
-            history_text = "\n".join(
-                history_lines
-            )
+            if history_lines:
+                history_text = "\n".join(
+                    history_lines
+                )
+            else:
+                history_text = (
+                    "No previous conversation."
+                )
 
         else:
 
             history_text = (
                 "No previous conversation."
             )
-
 
         user_prompt = f"""
 Conversation History:

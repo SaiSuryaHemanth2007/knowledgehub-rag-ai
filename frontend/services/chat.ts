@@ -5,6 +5,31 @@ import {
   ChatResponse,
 } from "@/types/chat";
 
+// =======================================================
+// SSE Event Types
+// =======================================================
+
+interface StreamTokenEvent {
+  type: "token";
+  text: string;
+}
+
+interface StreamDoneEvent {
+  type: "done";
+  sources: ChatResponse["sources"];
+  conversation_id?: number;
+}
+
+interface StreamErrorEvent {
+  type: "error";
+  message?: string;
+}
+
+type StreamEvent =
+  | StreamTokenEvent
+  | StreamDoneEvent
+  | StreamErrorEvent;
+
 
 // =======================================================
 // Normal Chat
@@ -20,10 +45,11 @@ export async function askQuestion(
     conversation_id: conversationId,
   };
 
-  const response = await api.post<ChatResponse>(
-    "/chat",
-    payload
-  );
+  const response =
+    await api.post<ChatResponse>(
+      "/chat",
+      payload
+    );
 
   return response.data;
 }
@@ -132,12 +158,12 @@ export async function streamQuestion(
     // Parse JSON
     // ===================================================
 
-    let parsed: any;
+    let parsed: StreamEvent;
 
     try {
 
       parsed =
-        JSON.parse(data);
+        JSON.parse(data) as StreamEvent;
 
     } catch (error) {
 

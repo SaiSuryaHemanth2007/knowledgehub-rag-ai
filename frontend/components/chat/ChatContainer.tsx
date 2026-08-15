@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import ChatInput from "./ChatInput";
 import MessageList from "./MessageList";
@@ -10,7 +14,34 @@ import { useChat } from "@/hooks/useChat";
 import { Message } from "@/types/message";
 import { ChatResponse } from "@/types/chat";
 
-export default function ChatContainer() {
+
+// =======================================================
+// Props
+// =======================================================
+
+interface ChatContainerProps {
+  conversationId?: number;
+
+  initialMessages: Message[];
+
+  loadingConversation: boolean;
+
+  onConversationCreated: (
+    conversationId: number
+  ) => void;
+}
+
+
+// =======================================================
+// Component
+// =======================================================
+
+export default function ChatContainer({
+  conversationId,
+  initialMessages,
+  loadingConversation,
+  onConversationCreated,
+}: ChatContainerProps) {
 
   const {
     loading,
@@ -20,11 +51,45 @@ export default function ChatContainer() {
 
 
   // =====================================================
-  // Chat messages
+  // Local Conversation State
   // =====================================================
 
-  const [messages, setMessages] =
-    useState<Message[]>([]);
+  const [
+    localConversationId,
+    setLocalConversationId,
+  ] = useState<number | undefined>(
+    conversationId
+  );
+
+
+  // =====================================================
+  // Local Messages
+  // =====================================================
+
+  const [
+    localMessages,
+    setLocalMessages,
+  ] = useState<Message[]>(
+    initialMessages
+  );
+
+
+  // =====================================================
+  // Determine Messages To Display
+  // =====================================================
+  //
+  // If the parent selected another conversation,
+  // initialMessages contains that conversation's
+  // messages.
+  //
+  // We intentionally avoid setState inside useEffect
+  // so ESLint remains clean.
+  // =====================================================
+
+  const messages =
+    localConversationId === conversationId
+      ? localMessages
+      : initialMessages;
 
 
   const bottomRef =
@@ -53,9 +118,11 @@ export default function ChatContainer() {
       // First assistant token
       // -------------------------------------------------
 
-      (assistantMessage: Message) => {
+      (
+        assistantMessage: Message
+      ) => {
 
-        setMessages((prev) => {
+        setLocalMessages((prev) => {
 
           const exists =
             prev.some(
@@ -90,7 +157,7 @@ export default function ChatContainer() {
         response?: ChatResponse
       ) => {
 
-        setMessages((prev) =>
+        setLocalMessages((prev) =>
           prev.map((message) => {
 
             if (
@@ -102,7 +169,9 @@ export default function ChatContainer() {
                 content,
 
                 ...(response
-                  ? { response }
+                  ? {
+                      response,
+                    }
                   : {}),
               };
 
@@ -119,10 +188,40 @@ export default function ChatContainer() {
 
       // -------------------------------------------------
       // Existing assistant message ID
-      // Used during regeneration
+      //
+      // Used during regeneration.
       // -------------------------------------------------
 
-      existingMessageId
+      existingMessageId,
+
+
+      // -------------------------------------------------
+      // IMPORTANT:
+      // Always use the conversation currently selected
+      // in the Sidebar.
+      // -------------------------------------------------
+
+      conversationId,
+
+
+      // -------------------------------------------------
+      // Conversation created / returned
+      // -------------------------------------------------
+
+      (
+        newConversationId: number
+      ) => {
+
+        setLocalConversationId(
+          newConversationId
+        );
+
+
+        onConversationCreated(
+          newConversationId
+        );
+
+      }
 
     );
 
@@ -137,7 +236,10 @@ export default function ChatContainer() {
     question: string
   ) {
 
-    if (loading) {
+    if (
+      loading ||
+      loadingConversation
+    ) {
       return;
     }
 
@@ -153,10 +255,43 @@ export default function ChatContainer() {
     };
 
 
-    setMessages((prev) => [
-      ...prev,
-      userMessage,
-    ]);
+    // ---------------------------------------------------
+    // Keep local conversation synchronized
+    // ---------------------------------------------------
+
+    setLocalConversationId(
+      conversationId
+    );
+
+
+    // ---------------------------------------------------
+    // Add message
+    // ---------------------------------------------------
+
+    setLocalMessages((prev) => {
+
+      // If a different conversation was selected,
+      // start with the messages loaded for that
+      // conversation.
+      if (
+        localConversationId !==
+        conversationId
+      ) {
+
+        return [
+          ...initialMessages,
+          userMessage,
+        ];
+
+      }
+
+
+      return [
+        ...prev,
+        userMessage,
+      ];
+
+    });
 
 
     // ---------------------------------------------------
@@ -178,7 +313,10 @@ export default function ChatContainer() {
     assistantMessageId: string
   ) {
 
-    if (loading) {
+    if (
+      loading ||
+      loadingConversation
+    ) {
       return;
     }
 
@@ -195,7 +333,9 @@ export default function ChatContainer() {
       );
 
 
-    if (assistantIndex === -1) {
+    if (
+      assistantIndex === -1
+    ) {
       return;
     }
 
@@ -205,7 +345,9 @@ export default function ChatContainer() {
     // ---------------------------------------------------
 
     const userMessage =
-      messages[assistantIndex - 1];
+      messages[
+        assistantIndex - 1
+      ];
 
 
     if (
@@ -221,11 +363,35 @@ export default function ChatContainer() {
 
 
     // ---------------------------------------------------
-    // Clear old answer
-    // Keep same message ID and position
+    // Make sure local state represents the
+    // currently selected conversation.
     // ---------------------------------------------------
 
-    setMessages((prev) =>
+    if (
+      localConversationId !==
+      conversationId
+    ) {
+
+      setLocalConversationId(
+        conversationId
+      );
+
+
+      setLocalMessages(
+        messages
+      );
+
+    }
+
+
+    // ---------------------------------------------------
+    // Clear old answer
+    //
+    // Keep the same assistant message ID
+    // and same position.
+    // ---------------------------------------------------
+
+    setLocalMessages((prev) =>
       prev.map((message) => {
 
         if (
@@ -249,10 +415,7 @@ export default function ChatContainer() {
 
 
     // ---------------------------------------------------
-    // Generate again
-    //
-    // useChat automatically keeps the
-    // current conversation ID.
+    // Generate again using the SAME conversation
     // ---------------------------------------------------
 
     await startStreaming(
@@ -273,7 +436,11 @@ export default function ChatContainer() {
       behavior: "smooth",
     });
 
-  }, [messages, loading]);
+  }, [
+    messages,
+    loading,
+    loadingConversation,
+  ]);
 
 
   // =====================================================
@@ -288,17 +455,35 @@ export default function ChatContainer() {
           Welcome
           ================================================= */}
 
-      {!hasMessages && (
+      {!hasMessages &&
+        !loadingConversation && (
 
-        <div className="px-8 pt-16 text-center">
+          <div className="px-8 pt-16 text-center">
 
-          <h1 className="text-6xl font-bold">
-            🤖 KnowledgeHub AI
-          </h1>
+            <h1 className="text-6xl font-bold">
+              🤖 KnowledgeHub AI
+            </h1>
 
-          <p className="mt-4 text-xl text-gray-500">
-            Ask anything about your uploaded documents.
-          </p>
+            <p className="mt-4 text-xl text-gray-500">
+              Ask anything about your uploaded documents.
+            </p>
+
+          </div>
+
+        )}
+
+
+      {/* =================================================
+          Loading Conversation
+          ================================================= */}
+
+      {loadingConversation && (
+
+        <div className="flex flex-1 items-center justify-center">
+
+          <div className="text-gray-500">
+            Loading conversation...
+          </div>
 
         </div>
 
@@ -309,44 +494,48 @@ export default function ChatContainer() {
           Messages
           ================================================= */}
 
-      <div className="flex-1 overflow-y-auto px-8 py-8">
+      {!loadingConversation && (
 
-        {!hasMessages ? (
+        <div className="flex-1 overflow-y-auto px-8 py-8">
 
-          <SuggestionCards />
+          {!hasMessages ? (
 
-        ) : (
+            <SuggestionCards />
 
-          <div className="mx-auto max-w-5xl">
+          ) : (
 
-            <MessageList
-              messages={messages}
-              loading={loading}
-              onRegenerate={
-                handleRegenerate
-              }
-            />
+            <div className="mx-auto max-w-5xl">
 
-            <div ref={bottomRef} />
+              <MessageList
+                messages={messages}
+                loading={loading}
+                onRegenerate={
+                  handleRegenerate
+                }
+              />
 
-          </div>
+              <div ref={bottomRef} />
 
-        )}
+            </div>
+
+          )}
 
 
-        {/* =================================================
-            Error
-            ================================================= */}
+          {/* =============================================
+              Error
+              ============================================= */}
 
-        {error && (
+          {error && (
 
-          <div className="mt-8 text-center text-red-500">
-            {error}
-          </div>
+            <div className="mt-8 text-center text-red-500">
+              {error}
+            </div>
 
-        )}
+          )}
 
-      </div>
+        </div>
+
+      )}
 
 
       {/* =================================================
@@ -359,7 +548,10 @@ export default function ChatContainer() {
 
           <ChatInput
             onSend={handleSend}
-            loading={loading}
+            loading={
+              loading ||
+              loadingConversation
+            }
           />
 
         </div>

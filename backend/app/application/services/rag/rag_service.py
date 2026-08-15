@@ -20,6 +20,8 @@ class RAGService:
             ↓
         Conversation History
             ↓
+        Conversation-Aware Retrieval
+            ↓
         RetrievalService
             ↓
         ContextBuilder
@@ -65,11 +67,15 @@ class RAGService:
 
         # ---------------------------------------------------
         # Retrieve relevant document chunks
+        #
+        # Conversation history is passed to retrieval so
+        # follow-up questions can be understood in context.
         # ---------------------------------------------------
 
         results = self.retrieval_service.retrieve(
             question=question,
             limit=limit,
+            history=conversation_history,
         )
 
         # ---------------------------------------------------
@@ -145,6 +151,10 @@ class RAGService:
         Retrieval-Augmented Generation and
         conversation history.
 
+        Conversation history is used during retrieval
+        so follow-up questions can retrieve the
+        correct document chunks.
+
         Returns:
 
             token_stream:
@@ -163,11 +173,15 @@ class RAGService:
 
         # ---------------------------------------------------
         # Retrieve relevant document chunks
+        #
+        # IMPORTANT:
+        # Pass conversation history into retrieval.
         # ---------------------------------------------------
 
         results = self.retrieval_service.retrieve(
             question=question,
             limit=limit,
+            history=conversation_history,
         )
 
         # ---------------------------------------------------

@@ -2,7 +2,7 @@
 
 import {
   useEffect,
-  useRef,
+  useMemo,
   useState,
 } from "react";
 
@@ -43,57 +43,87 @@ export default function ChatContainer({
   onConversationCreated,
 }: ChatContainerProps) {
 
+  // =====================================================
+  // Chat Hook
+  // =====================================================
+
   const {
     loading,
     error,
     streamMessage,
-  } = useChat();
+  } = useChat(
+    conversationId
+  );
 
 
   // =====================================================
-  // Local Conversation State
+  // Local streamed messages
+  //
+  // These are messages generated after the conversation
+  // was loaded.
   // =====================================================
 
   const [
-    localConversationId,
-    setLocalConversationId,
+    localMessages,
+    setLocalMessages,
+  ] = useState<Message[]>([]);
+
+
+  // =====================================================
+  // Conversation ID for local streamed state
+  //
+  // This state is ONLY changed when the backend creates
+  // a new conversation.
+  // =====================================================
+
+  const [
+    streamedConversationId,
+    setStreamedConversationId,
   ] = useState<number | undefined>(
     conversationId
   );
 
 
   // =====================================================
-  // Local Messages
+  // Messages to display
+  //
+  // When viewing an existing conversation, the parent
+  // provides initialMessages.
+  //
+  // When streaming inside that conversation, localMessages
+  // are appended.
+  //
+  // useMemo keeps the array stable for the scroll effect.
   // =====================================================
 
-  const [
+  const messages = useMemo(() => {
+
+    // ---------------------------------------------------
+    // If the selected conversation changed, discard the
+    // local streamed messages from the previous chat.
+    // ---------------------------------------------------
+
+    if (
+      streamedConversationId !==
+      conversationId
+    ) {
+
+      return initialMessages;
+
+    }
+
+
+    return [
+      ...initialMessages,
+      ...localMessages,
+    ];
+
+  }, [
+    conversationId,
+    initialMessages,
     localMessages,
-    setLocalMessages,
-  ] = useState<Message[]>(
-    initialMessages
-  );
-
-
-  // =====================================================
-  // Determine Messages To Display
-  // =====================================================
-  //
-  // If the parent selected another conversation,
-  // initialMessages contains that conversation's
-  // messages.
-  //
-  // We intentionally avoid setState inside useEffect
-  // so ESLint remains clean.
-  // =====================================================
-
-  const messages =
-    localConversationId === conversationId
-      ? localMessages
-      : initialMessages;
-
-
-  const bottomRef =
-    useRef<HTMLDivElement>(null);
+    streamedConversationId,
+  ]);
 
 
   const hasMessages =
@@ -188,34 +218,29 @@ export default function ChatContainer({
 
       // -------------------------------------------------
       // Existing assistant message ID
-      //
-      // Used during regeneration.
       // -------------------------------------------------
 
       existingMessageId,
 
 
       // -------------------------------------------------
-      // IMPORTANT:
-      // Always use the conversation currently selected
-      // in the Sidebar.
+      // Current conversation
       // -------------------------------------------------
 
       conversationId,
 
 
       // -------------------------------------------------
-      // Conversation created / returned
+      // Backend-created conversation
       // -------------------------------------------------
 
       (
         newConversationId: number
       ) => {
 
-        setLocalConversationId(
+        setStreamedConversationId(
           newConversationId
         );
-
 
         onConversationCreated(
           newConversationId
@@ -245,6 +270,25 @@ export default function ChatContainer({
 
 
     // ---------------------------------------------------
+    // If this is a selected existing conversation,
+    // make sure local streamed messages belong to it.
+    // ---------------------------------------------------
+
+    if (
+      streamedConversationId !==
+      conversationId
+    ) {
+
+      setStreamedConversationId(
+        conversationId
+      );
+
+      setLocalMessages([]);
+
+    }
+
+
+    // ---------------------------------------------------
     // Add user message immediately
     // ---------------------------------------------------
 
@@ -255,43 +299,13 @@ export default function ChatContainer({
     };
 
 
-    // ---------------------------------------------------
-    // Keep local conversation synchronized
-    // ---------------------------------------------------
+    setLocalMessages((prev) => [
 
-    setLocalConversationId(
-      conversationId
-    );
+      ...prev,
 
+      userMessage,
 
-    // ---------------------------------------------------
-    // Add message
-    // ---------------------------------------------------
-
-    setLocalMessages((prev) => {
-
-      // If a different conversation was selected,
-      // start with the messages loaded for that
-      // conversation.
-      if (
-        localConversationId !==
-        conversationId
-      ) {
-
-        return [
-          ...initialMessages,
-          userMessage,
-        ];
-
-      }
-
-
-      return [
-        ...prev,
-        userMessage,
-      ];
-
-    });
+    ]);
 
 
     // ---------------------------------------------------
@@ -363,32 +377,7 @@ export default function ChatContainer({
 
 
     // ---------------------------------------------------
-    // Make sure local state represents the
-    // currently selected conversation.
-    // ---------------------------------------------------
-
-    if (
-      localConversationId !==
-      conversationId
-    ) {
-
-      setLocalConversationId(
-        conversationId
-      );
-
-
-      setLocalMessages(
-        messages
-      );
-
-    }
-
-
-    // ---------------------------------------------------
-    // Clear old answer
-    //
-    // Keep the same assistant message ID
-    // and same position.
+    // Clear the existing answer.
     // ---------------------------------------------------
 
     setLocalMessages((prev) =>
@@ -415,7 +404,7 @@ export default function ChatContainer({
 
 
     // ---------------------------------------------------
-    // Generate again using the SAME conversation
+    // Regenerate using the selected conversation.
     // ---------------------------------------------------
 
     await startStreaming(
@@ -432,7 +421,12 @@ export default function ChatContainer({
 
   useEffect(() => {
 
-    bottomRef.current?.scrollIntoView({
+    const bottomElement =
+      document.getElementById(
+        "chat-bottom"
+      );
+
+    bottomElement?.scrollIntoView({
       behavior: "smooth",
     });
 
@@ -514,7 +508,7 @@ export default function ChatContainer({
                 }
               />
 
-              <div ref={bottomRef} />
+              <div id="chat-bottom" />
 
             </div>
 

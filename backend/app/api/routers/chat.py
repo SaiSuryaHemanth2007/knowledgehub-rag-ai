@@ -47,12 +47,13 @@ def chat(
     message_service = MessageService(db)
 
     # -----------------------------------------------------
-    # Create conversation if one was not supplied
+    # Resolve conversation
     # -----------------------------------------------------
 
     conversation_id = request.conversation_id
 
     if conversation_id is None:
+
         conversation = conversation_service.create(
             title=request.question[:255],
         )
@@ -60,6 +61,7 @@ def chat(
         conversation_id = conversation.id
 
     else:
+
         conversation = conversation_service.get(
             conversation_id,
         )
@@ -77,6 +79,22 @@ def chat(
     history = message_service.get_history(
         conversation_id=conversation_id,
     )
+
+    # -----------------------------------------------------
+    # Set title from the first question
+    #
+    # If the frontend created the conversation as
+    # "New Chat", rename it using the first question.
+    # -----------------------------------------------------
+
+    if (
+        conversation.title == "New Chat"
+        and not history
+    ):
+        conversation_service.update_title(
+            conversation,
+            request.question[:255],
+        )
 
     # -----------------------------------------------------
     # Save user message
@@ -108,6 +126,10 @@ def chat(
         role="assistant",
         content=result["answer"],
     )
+
+    # -----------------------------------------------------
+    # Return response
+    # -----------------------------------------------------
 
     return ChatResponse(
         answer=result["answer"],
@@ -143,6 +165,7 @@ def stream_chat(
     conversation_id = request.conversation_id
 
     if conversation_id is None:
+
         conversation = conversation_service.create(
             title=request.question[:255],
         )
@@ -150,6 +173,7 @@ def stream_chat(
         conversation_id = conversation.id
 
     else:
+
         conversation = conversation_service.get(
             conversation_id,
         )
@@ -167,6 +191,23 @@ def stream_chat(
     history = message_service.get_history(
         conversation_id=conversation_id,
     )
+
+    # -----------------------------------------------------
+    # Set title from the first question
+    #
+    # The frontend may create a conversation with the
+    # default title "New Chat". When the first question
+    # arrives, replace that title with the question.
+    # -----------------------------------------------------
+
+    if (
+        conversation.title == "New Chat"
+        and not history
+    ):
+        conversation_service.update_title(
+            conversation,
+            request.question[:255],
+        )
 
     # -----------------------------------------------------
     # Save current user message
@@ -198,6 +239,7 @@ def stream_chat(
         accumulated_answer = ""
 
         try:
+
             # ---------------------------------------------
             # Stream tokens
             # ---------------------------------------------
@@ -222,6 +264,7 @@ def stream_chat(
             # ---------------------------------------------
 
             if accumulated_answer:
+
                 message_service.create(
                     conversation_id=conversation_id,
                     role="assistant",
@@ -256,6 +299,10 @@ def stream_chat(
                 )
                 + "\n\n"
             )
+
+    # -----------------------------------------------------
+    # Return streaming response
+    # -----------------------------------------------------
 
     return StreamingResponse(
         event_stream(),

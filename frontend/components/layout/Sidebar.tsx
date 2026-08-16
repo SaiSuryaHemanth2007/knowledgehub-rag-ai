@@ -29,10 +29,14 @@ interface ConversationListResponse {
 
 interface SidebarProps {
   conversationId?: number;
+
   onSelectConversation?: (
     conversationId: number
   ) => void;
+
   onNewChat?: () => void;
+
+  refreshKey?: number;
 }
 
 const menuItems = [
@@ -58,6 +62,7 @@ export default function Sidebar({
   conversationId,
   onSelectConversation,
   onNewChat,
+  refreshKey,
 }: SidebarProps) {
   const [conversations, setConversations] =
     useState<Conversation[]>([]);
@@ -104,7 +109,7 @@ export default function Sidebar({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [loadConversations]);
+  }, [loadConversations, refreshKey]);
 
   // =====================================================
   // Render

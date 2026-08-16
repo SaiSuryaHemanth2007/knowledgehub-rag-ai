@@ -50,6 +50,25 @@ class ConversationService:
         )
 
     # =====================================================
+    # Update Conversation Title
+    # =====================================================
+
+    def update_title(
+        self,
+        conversation,
+        title: str,
+    ):
+        """
+        Update the title of an existing conversation.
+        """
+
+        conversation.title = title
+
+        return self.repository.update(
+            conversation,
+        )
+
+    # =====================================================
     # List Conversations
     # =====================================================
 

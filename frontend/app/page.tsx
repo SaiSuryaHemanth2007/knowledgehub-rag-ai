@@ -44,16 +44,25 @@ export default function Home() {
   // =====================================================
   // Chat Session Key
   //
-  // Changes only when the user selects an existing
+  // Changes when the user selects an existing
   // conversation or creates a new chat.
-  //
-  // It does NOT change when the backend creates the
-  // conversation during the first streamed message.
   // =====================================================
 
   const [
     chatSessionKey,
     setChatSessionKey,
+  ] = useState(0);
+
+  // =====================================================
+  // Sidebar Refresh Key
+  //
+  // Changes whenever a conversation is created.
+  // This tells Sidebar to reload the conversations.
+  // =====================================================
+
+  const [
+    conversationRefreshKey,
+    setConversationRefreshKey,
   ] = useState(0);
 
   // =====================================================
@@ -99,7 +108,9 @@ export default function Home() {
       // conversation's messages.
       // -------------------------------------------------
 
-      setChatSessionKey((previous) => previous + 1);
+      setChatSessionKey(
+        (previous) => previous + 1
+      );
 
     } catch (error) {
       console.error(
@@ -138,7 +149,17 @@ export default function Home() {
       // Start a completely fresh ChatContainer
       // -------------------------------------------------
 
-      setChatSessionKey((previous) => previous + 1);
+      setChatSessionKey(
+        (previous) => previous + 1
+      );
+
+      // -------------------------------------------------
+      // Refresh Sidebar
+      // -------------------------------------------------
+
+      setConversationRefreshKey(
+        (previous) => previous + 1
+      );
 
     } catch (error) {
       console.error(
@@ -155,7 +176,22 @@ export default function Home() {
   function handleConversationCreated(
     id: number
   ) {
+    // -------------------------------------------------
+    // Keep the current conversation ID
+    // -------------------------------------------------
+
     setConversationId(id);
+
+    // -------------------------------------------------
+    // Refresh Sidebar
+    //
+    // This is important when the conversation is created
+    // by the backend during the first streamed message.
+    // -------------------------------------------------
+
+    setConversationRefreshKey(
+      (previous) => previous + 1
+    );
   }
 
   // =====================================================
@@ -172,6 +208,9 @@ export default function Home() {
         }
         onNewChat={
           handleNewChat
+        }
+        refreshKey={
+          conversationRefreshKey
         }
       />
 

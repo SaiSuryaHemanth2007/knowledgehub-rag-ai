@@ -195,6 +195,46 @@ export default function Home() {
   }
 
   // =====================================================
+  // Conversation Deleted
+  // =====================================================
+
+  function handleConversationDeleted(
+    deletedConversationId: number
+  ) {
+    // -------------------------------------------------
+    // If another conversation was deleted,
+    // keep the current chat unchanged.
+    // -------------------------------------------------
+
+    if (
+      deletedConversationId !==
+      conversationId
+    ) {
+      return;
+    }
+
+    // -------------------------------------------------
+    // Clear current conversation
+    // -------------------------------------------------
+
+    setConversationId(undefined);
+
+    // -------------------------------------------------
+    // Clear messages
+    // -------------------------------------------------
+
+    setConversationMessages([]);
+
+    // -------------------------------------------------
+    // Start a completely fresh ChatContainer
+    // -------------------------------------------------
+
+    setChatSessionKey(
+      (previous) => previous + 1
+    );
+  }
+
+  // =====================================================
   // Render
   // =====================================================
 
@@ -202,7 +242,9 @@ export default function Home() {
     <div className="flex h-screen bg-gray-100">
 
       <Sidebar
-        conversationId={conversationId}
+        conversationId={
+          conversationId
+        }
         onSelectConversation={
           handleSelectConversation
         }
@@ -212,6 +254,9 @@ export default function Home() {
         refreshKey={
           conversationRefreshKey
         }
+        onConversationDeleted={
+          handleConversationDeleted
+        }
       />
 
       <div className="flex flex-1 flex-col">
@@ -220,7 +265,9 @@ export default function Home() {
 
         <ChatContainer
           key={chatSessionKey}
-          conversationId={conversationId}
+          conversationId={
+            conversationId
+          }
           initialMessages={
             conversationMessages
           }

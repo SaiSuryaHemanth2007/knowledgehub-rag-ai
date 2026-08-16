@@ -6,6 +6,7 @@ import {
   Files,
   Settings,
   Plus,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -37,6 +38,10 @@ interface SidebarProps {
   onNewChat?: () => void;
 
   refreshKey?: number;
+
+  onConversationDeleted?: (
+    conversationId: number
+  ) => void;
 }
 
 const menuItems = [
@@ -63,12 +68,16 @@ export default function Sidebar({
   onSelectConversation,
   onNewChat,
   refreshKey,
+  onConversationDeleted,
 }: SidebarProps) {
   const [conversations, setConversations] =
     useState<Conversation[]>([]);
 
   const [loading, setLoading] =
     useState(false);
+
+  const [deletingId, setDeletingId] =
+    useState<number | undefined>(undefined);
 
   // =====================================================
   // Load Conversations
@@ -98,7 +107,7 @@ export default function Sidebar({
     }, []);
 
   // =====================================================
-  // Initial Load
+  // Initial Load / Refresh
   // =====================================================
 
   useEffect(() => {
@@ -110,6 +119,61 @@ export default function Sidebar({
       window.clearTimeout(timer);
     };
   }, [loadConversations, refreshKey]);
+
+  // =====================================================
+  // Delete Conversation
+  // =====================================================
+
+  async function handleDeleteConversation(
+    id: number,
+    title: string
+  ) {
+    const confirmed =
+      window.confirm(
+        `Delete "${title}"? This will also delete all messages in this conversation.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingId(id);
+
+      await api.delete(
+        `/conversations/${id}`
+      );
+
+      // -------------------------------------------------
+      // Remove conversation immediately from the UI
+      // -------------------------------------------------
+
+      setConversations((previous) =>
+        previous.filter(
+          (conversation) =>
+            conversation.id !== id
+        )
+      );
+
+      // -------------------------------------------------
+      // Tell parent if the deleted conversation
+      // was the currently selected conversation.
+      // -------------------------------------------------
+
+      onConversationDeleted?.(id);
+    } catch (error) {
+      console.error(
+        "Failed to delete conversation:",
+        error
+      );
+
+      window.alert(
+        "Failed to delete conversation."
+      );
+    } finally {
+      setDeletingId(undefined);
+    }
+  }
 
   // =====================================================
   // Render
@@ -127,7 +191,6 @@ export default function Sidebar({
           KnowledgeHub
         </h1>
       </div>
-
 
       {/* =================================================
           Main Navigation
@@ -154,7 +217,6 @@ export default function Sidebar({
 
       </nav>
 
-
       {/* =================================================
           Conversations
           ================================================= */}
@@ -179,7 +241,6 @@ export default function Sidebar({
 
         </div>
 
-
         {/* Conversation List */}
 
         <div className="flex-1 overflow-y-auto p-3">
@@ -190,14 +251,12 @@ export default function Sidebar({
             </p>
           )}
 
-
           {!loading &&
             conversations.length === 0 && (
               <p className="px-2 py-3 text-sm text-gray-400">
                 No conversations yet.
               </p>
             )}
-
 
           {!loading &&
             conversations.map(
@@ -207,24 +266,57 @@ export default function Sidebar({
                   conversation.id ===
                   conversationId;
 
+                const isDeleting =
+                  deletingId ===
+                  conversation.id;
+
                 return (
-                  <button
+                  <div
                     key={conversation.id}
-                    onClick={() =>
-                      onSelectConversation?.(
-                        conversation.id
-                      )
-                    }
-                    className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                    className={`group mb-1 flex w-full items-center rounded-lg transition ${
                       isActive
-                        ? "bg-gray-100 font-medium text-gray-900"
-                        : "text-gray-600 hover:bg-gray-50"
+                        ? "bg-gray-100"
+                        : "hover:bg-gray-50"
                     }`}
                   >
-                    <div className="truncate">
-                      {conversation.title}
-                    </div>
-                  </button>
+
+                    {/* Conversation */}
+
+                    <button
+                      onClick={() =>
+                        onSelectConversation?.(
+                          conversation.id
+                        )
+                      }
+                      disabled={isDeleting}
+                      className={`min-w-0 flex-1 px-3 py-2 text-left text-sm ${
+                        isActive
+                          ? "font-medium text-gray-900"
+                          : "text-gray-600"
+                      }`}
+                    >
+                      <div className="truncate">
+                        {conversation.title}
+                      </div>
+                    </button>
+
+                    {/* Delete */}
+
+                    <button
+                      onClick={() =>
+                        void handleDeleteConversation(
+                          conversation.id,
+                          conversation.title
+                        )
+                      }
+                      disabled={isDeleting}
+                      className="mr-1 rounded-md p-2 text-gray-400 opacity-0 transition hover:bg-gray-200 hover:text-red-600 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Delete conversation"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+
+                  </div>
                 );
               }
             )}

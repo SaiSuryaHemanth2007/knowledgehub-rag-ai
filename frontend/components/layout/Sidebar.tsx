@@ -15,6 +15,8 @@ import {
   useState,
 } from "react";
 
+import { useRouter } from "next/navigation";
+
 import api from "@/services/api";
 
 interface Conversation {
@@ -70,6 +72,8 @@ export default function Sidebar({
   refreshKey,
   onConversationDeleted,
 }: SidebarProps) {
+  const router = useRouter();
+
   const [conversations, setConversations] =
     useState<Conversation[]>([]);
 
@@ -176,6 +180,26 @@ export default function Sidebar({
   }
 
   // =====================================================
+  // Main Navigation
+  // =====================================================
+
+  function handleNavigation(
+    title: string
+  ) {
+    if (title === "Chat") {
+      router.push("/");
+      return;
+    }
+
+    if (title === "Documents") {
+      router.push("/documents");
+      return;
+    }
+
+    // Upload and Settings are not connected yet.
+  }
+
+  // =====================================================
   // Render
   // =====================================================
 
@@ -204,6 +228,11 @@ export default function Sidebar({
           return (
             <button
               key={item.title}
+              onClick={() =>
+                handleNavigation(
+                  item.title
+                )
+              }
               className="mb-2 flex w-full items-center gap-3 rounded-lg p-3 transition hover:bg-gray-100"
             >
               <Icon size={20} />

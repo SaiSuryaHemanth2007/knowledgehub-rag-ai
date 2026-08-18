@@ -61,3 +61,35 @@ export async function deleteDocument(
     `/documents/${documentId}`
   );
 }
+
+
+// =======================================================
+// Upload Document
+// =======================================================
+
+export async function uploadDocument(
+  title: string,
+  file: File
+): Promise<Document> {
+
+  const formData =
+    new FormData();
+
+  formData.append(
+    "title",
+    title
+  );
+
+  formData.append(
+    "file",
+    file
+  );
+
+  const response =
+    await api.post<Document>(
+      "/documents/upload",
+      formData
+    );
+
+  return response.data;
+}

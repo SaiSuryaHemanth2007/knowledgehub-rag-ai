@@ -15,7 +15,10 @@ import {
   useState,
 } from "react";
 
-import { useRouter } from "next/navigation";
+import {
+  usePathname,
+  useRouter,
+} from "next/navigation";
 
 import api from "@/services/api";
 
@@ -50,18 +53,22 @@ const menuItems = [
   {
     title: "Chat",
     icon: MessageSquare,
+    path: "/",
   },
   {
     title: "Upload",
     icon: Upload,
+    path: "/upload",
   },
   {
     title: "Documents",
     icon: Files,
+    path: "/documents",
   },
   {
     title: "Settings",
     icon: Settings,
+    path: "/settings",
   },
 ];
 
@@ -73,6 +80,7 @@ export default function Sidebar({
   onConversationDeleted,
 }: SidebarProps) {
   const router = useRouter();
+  const pathname = usePathname();
 
   const [conversations, setConversations] =
     useState<Conversation[]>([]);
@@ -122,7 +130,20 @@ export default function Sidebar({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [loadConversations, refreshKey]);
+  }, [
+    loadConversations,
+    refreshKey,
+  ]);
+
+  // =====================================================
+  // Navigation
+  // =====================================================
+
+  function handleNavigation(
+    path: string
+  ) {
+    router.push(path);
+  }
 
   // =====================================================
   // Delete Conversation
@@ -149,7 +170,7 @@ export default function Sidebar({
       );
 
       // -------------------------------------------------
-      // Remove conversation immediately from the UI
+      // Remove conversation immediately
       // -------------------------------------------------
 
       setConversations((previous) =>
@@ -160,8 +181,7 @@ export default function Sidebar({
       );
 
       // -------------------------------------------------
-      // Tell parent if the deleted conversation
-      // was the currently selected conversation.
+      // Notify parent
       // -------------------------------------------------
 
       onConversationDeleted?.(id);
@@ -177,26 +197,6 @@ export default function Sidebar({
     } finally {
       setDeletingId(undefined);
     }
-  }
-
-  // =====================================================
-  // Main Navigation
-  // =====================================================
-
-  function handleNavigation(
-    title: string
-  ) {
-    if (title === "Chat") {
-      router.push("/");
-      return;
-    }
-
-    if (title === "Documents") {
-      router.push("/documents");
-      return;
-    }
-
-    // Upload and Settings are not connected yet.
   }
 
   // =====================================================
@@ -225,15 +225,26 @@ export default function Sidebar({
         {menuItems.map((item) => {
           const Icon = item.icon;
 
+          const isActive =
+            item.path === "/"
+              ? pathname === "/"
+              : pathname.startsWith(
+                  item.path
+                );
+
           return (
             <button
               key={item.title}
               onClick={() =>
                 handleNavigation(
-                  item.title
+                  item.path
                 )
               }
-              className="mb-2 flex w-full items-center gap-3 rounded-lg p-3 transition hover:bg-gray-100"
+              className={`mb-2 flex w-full items-center gap-3 rounded-lg p-3 text-left transition ${
+                isActive
+                  ? "bg-gray-100 font-medium text-gray-900"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
             >
               <Icon size={20} />
 

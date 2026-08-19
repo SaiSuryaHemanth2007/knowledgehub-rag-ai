@@ -10,7 +10,12 @@ import {
   FileText,
   Trash2,
   RefreshCw,
+  Upload,
 } from "lucide-react";
+
+import {
+  useRouter,
+} from "next/navigation";
 
 import {
   deleteDocument,
@@ -20,6 +25,8 @@ import {
 
 
 export default function DocumentsPage() {
+
+  const router = useRouter();
 
   // =====================================================
   // Documents
@@ -123,12 +130,13 @@ export default function DocumentsPage() {
   // =====================================================
 
   async function handleDelete(
-    documentId: number
+    documentId: number,
+    title: string
   ) {
 
     const confirmed =
       window.confirm(
-        "Are you sure you want to delete this document?"
+        `Are you sure you want to delete "${title}"? This will also remove its stored chunks and embeddings.`
       );
 
     if (!confirmed) {
@@ -201,6 +209,28 @@ export default function DocumentsPage() {
 
 
   // =====================================================
+  // Format Date
+  // =====================================================
+
+  function formatDate(
+    date: string
+  ): string {
+
+    return new Date(
+      date
+    ).toLocaleDateString(
+      undefined,
+      {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }
+    );
+
+  }
+
+
+  // =====================================================
   // Render
   // =====================================================
 
@@ -228,26 +258,50 @@ export default function DocumentsPage() {
           </div>
 
 
-          <button
-            onClick={() =>
-              void loadDocuments()
-            }
-            disabled={loading}
-            className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <div className="flex items-center gap-3">
 
-            <RefreshCw
-              size={16}
-              className={
-                loading
-                  ? "animate-spin"
-                  : ""
+            {/* Refresh */}
+
+            <button
+              onClick={() =>
+                void loadDocuments()
               }
-            />
+              disabled={loading}
+              className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
 
-            Refresh
+              <RefreshCw
+                size={16}
+                className={
+                  loading
+                    ? "animate-spin"
+                    : ""
+                }
+              />
 
-          </button>
+              Refresh
+
+            </button>
+
+
+            {/* Upload */}
+
+            <button
+              onClick={() =>
+                router.push("/upload")
+              }
+              className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+            >
+
+              <Upload
+                size={16}
+              />
+
+              Upload Document
+
+            </button>
+
+          </div>
 
         </div>
 
@@ -259,6 +313,21 @@ export default function DocumentsPage() {
           ================================================= */}
 
       <div className="p-8">
+
+        {/* Document Count */}
+
+        {!loading &&
+          documents.length > 0 && (
+
+            <div className="mb-4 text-sm text-gray-500">
+              {documents.length}{" "}
+              {documents.length === 1
+                ? "document"
+                : "documents"}
+            </div>
+
+          )}
+
 
         {/* Error */}
 
@@ -302,6 +371,21 @@ export default function DocumentsPage() {
                 Upload a document to start building your knowledge base.
               </p>
 
+              <button
+                onClick={() =>
+                  router.push("/upload")
+                }
+                className="mx-auto mt-6 flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+              >
+
+                <Upload
+                  size={16}
+                />
+
+                Upload Document
+
+              </button>
+
             </div>
 
           )}
@@ -316,7 +400,7 @@ export default function DocumentsPage() {
 
               {/* Table Header */}
 
-              <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_auto] gap-4 border-b bg-gray-50 px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr_auto] gap-4 border-b bg-gray-50 px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
 
                 <span>
                   Document
@@ -335,6 +419,10 @@ export default function DocumentsPage() {
                 </span>
 
                 <span>
+                  Uploaded
+                </span>
+
+                <span>
                   Action
                 </span>
 
@@ -344,89 +432,114 @@ export default function DocumentsPage() {
               {/* Documents */}
 
               {documents.map(
-                (document) => (
+                (document) => {
 
-                  <div
-                    key={document.id}
-                    className="grid grid-cols-[2fr_1.5fr_1fr_1fr_auto] items-center gap-4 border-b px-6 py-4 last:border-b-0"
-                  >
+                  const isDeleting =
+                    deletingId ===
+                    document.id;
 
-                    {/* Document */}
+                  return (
 
-                    <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      key={document.id}
+                      className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr_auto] items-center gap-4 border-b px-6 py-4 last:border-b-0"
+                    >
 
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+                      {/* Document */}
 
-                        <FileText
-                          size={20}
-                          className="text-gray-600"
+                      <div className="flex min-w-0 items-center gap-3">
+
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+
+                          <FileText
+                            size={20}
+                            className="text-gray-600"
+                          />
+
+                        </div>
+
+                        <div className="min-w-0">
+
+                          <p className="truncate text-sm font-medium text-gray-900">
+                            {document.title}
+                          </p>
+
+                          <p className="text-xs text-gray-500">
+                            ID: {document.id}
+                          </p>
+
+                        </div>
+
+                      </div>
+
+
+                      {/* Filename */}
+
+                      <p
+                        className="truncate text-sm text-gray-600"
+                        title={
+                          document.original_filename
+                        }
+                      >
+                        {document.original_filename}
+                      </p>
+
+
+                      {/* Type */}
+
+                      <p
+                        className="truncate text-sm text-gray-600"
+                        title={
+                          document.file_type
+                        }
+                      >
+                        {document.file_type}
+                      </p>
+
+
+                      {/* Size */}
+
+                      <p className="text-sm text-gray-600">
+                        {formatFileSize(
+                          document.file_size
+                        )}
+                      </p>
+
+
+                      {/* Uploaded */}
+
+                      <p className="text-sm text-gray-600">
+                        {formatDate(
+                          document.created_at
+                        )}
+                      </p>
+
+
+                      {/* Delete */}
+
+                      <button
+                        onClick={() =>
+                          void handleDelete(
+                            document.id,
+                            document.title
+                          )
+                        }
+                        disabled={isDeleting}
+                        className="rounded-lg p-2 text-gray-500 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Delete document"
+                      >
+
+                        <Trash2
+                          size={18}
                         />
 
-                      </div>
-
-                      <div className="min-w-0">
-
-                        <p className="truncate text-sm font-medium text-gray-900">
-                          {document.title}
-                        </p>
-
-                        <p className="text-xs text-gray-500">
-                          ID: {document.id}
-                        </p>
-
-                      </div>
+                      </button>
 
                     </div>
 
+                  );
 
-                    {/* Filename */}
-
-                    <p className="truncate text-sm text-gray-600">
-                      {document.original_filename}
-                    </p>
-
-
-                    {/* Type */}
-
-                    <p className="text-sm text-gray-600">
-                      {document.file_type}
-                    </p>
-
-
-                    {/* Size */}
-
-                    <p className="text-sm text-gray-600">
-                      {formatFileSize(
-                        document.file_size
-                      )}
-                    </p>
-
-
-                    {/* Delete */}
-
-                    <button
-                      onClick={() =>
-                        void handleDelete(
-                          document.id
-                        )
-                      }
-                      disabled={
-                        deletingId ===
-                        document.id
-                      }
-                      className="rounded-lg p-2 text-gray-500 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Delete document"
-                    >
-
-                      <Trash2
-                        size={18}
-                      />
-
-                    </button>
-
-                  </div>
-
-                )
+                }
               )}
 
             </div>

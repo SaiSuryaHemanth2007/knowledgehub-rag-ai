@@ -2,6 +2,10 @@ class ContextBuilder:
     """
     Builds the context string that will be sent
     to the language model.
+
+    The original database chunk index is preserved
+    so the language model can reference the same
+    chunk that is displayed by the application.
     """
 
     def build(
@@ -23,11 +27,14 @@ class ContextBuilder:
 
         context_parts = []
 
-        for i, result in enumerate(results, start=1):
+        for result in results:
             chunk = result["chunk"]
+            score = result["score"]
 
             context_parts.append(
-                f"[Chunk {i}]\n{chunk.content.strip()}"
+                f"[Chunk {chunk.chunk_index}]\n"
+                f"Similarity: {score:.4f}\n"
+                f"{chunk.content.strip()}"
             )
 
         return "\n\n".join(context_parts)

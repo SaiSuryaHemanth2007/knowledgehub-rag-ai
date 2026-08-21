@@ -57,6 +57,30 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 3072
 
     # ==========================
+    # Retrieval
+    # ==========================
+
+    # Number of final chunks sent to the LLM.
+    RETRIEVAL_LIMIT: int = 5
+
+    # Number of candidates retrieved from each
+    # retrieval strategy before hybrid ranking.
+    RETRIEVAL_CANDIDATE_LIMIT: int = 20
+
+    # Minimum vector similarity score.
+    RETRIEVAL_MIN_SCORE: float = 0.60
+
+    # ==========================
+    # Hybrid Search
+    # ==========================
+
+    # Semantic/vector search weight.
+    VECTOR_SEARCH_WEIGHT: float = 0.70
+
+    # PostgreSQL keyword search weight.
+    KEYWORD_SEARCH_WEIGHT: float = 0.30
+
+    # ==========================
     # Logging
     # ==========================
     LOG_LEVEL: str = "INFO"

@@ -4,33 +4,60 @@ from app.core.config import settings
 class HybridSearchService:
     """
     Combines vector and keyword retrieval results
-    into a single ranked result set.
+    into a single ranked candidate set.
+
+    Pipeline:
+
+        Vector Results
+              +
+        Keyword Results
+              ↓
+        Score Calibration
+              ↓
+        Weighted Hybrid Score
+              ↓
+        Ranking
+              ↓
+        Candidate Top K
+              ↓
+        Reranker
     """
 
     def combine(
         self,
         vector_results: list[dict],
         keyword_results: list[dict],
-        limit: int = 5,
+        limit: int = 20,
     ) -> list[dict]:
         """
-        Combine vector and keyword results using
-        normalized weighted scoring.
+        Combine vector and keyword retrieval results
+        using weighted scoring.
+
+        IMPORTANT:
+
+        This stage is responsible for candidate ranking,
+        not final relevance classification.
+
+        The final relevance decision belongs to the
+        reranking/grounding stage.
+
+        Therefore, HYBRID_MIN_SCORE is intentionally
+        NOT applied here.
         """
 
-        vector_scores = self._normalize_scores(
+        vector_scores = self._build_score_map(
             vector_results
         )
 
-        keyword_scores = self._normalize_scores(
+        keyword_scores = self._build_score_map(
             keyword_results
         )
 
         combined = {}
 
-        # ===================================================
+        # ==================================================
         # Vector Results
-        # ===================================================
+        # ==================================================
 
         for result in vector_results:
 
@@ -47,9 +74,9 @@ class HybridSearchService:
                 "keyword_score": 0.0,
             }
 
-        # ===================================================
+        # ==================================================
         # Keyword Results
-        # ===================================================
+        # ==================================================
 
         for result in keyword_results:
 
@@ -72,19 +99,27 @@ class HybridSearchService:
                 0.0,
             )
 
-        # ===================================================
-        # Calculate Hybrid Score
-        # ===================================================
+        # ==================================================
+        # Calculate Hybrid Scores
+        # ==================================================
 
         results = []
 
         for item in combined.values():
 
+            vector_score = item[
+                "vector_score"
+            ]
+
+            keyword_score = item[
+                "keyword_score"
+            ]
+
             hybrid_score = (
-                item["vector_score"]
+                vector_score
                 * settings.VECTOR_SEARCH_WEIGHT
             ) + (
-                item["keyword_score"]
+                keyword_score
                 * settings.KEYWORD_SEARCH_WEIGHT
             )
 
@@ -96,74 +131,78 @@ class HybridSearchService:
                         4,
                     ),
                     "vector_score": round(
-                        item["vector_score"],
+                        vector_score,
                         4,
                     ),
                     "keyword_score": round(
-                        item["keyword_score"],
+                        keyword_score,
                         4,
                     ),
                 }
             )
 
-        # ===================================================
-        # Rank Results
-        # ===================================================
+        # ==================================================
+        # Rank Candidates
+        # ==================================================
 
         results.sort(
             key=lambda result: result["score"],
             reverse=True,
         )
 
+        # ==================================================
+        # Return Candidate Pool
+        # ==================================================
+
         return results[:limit]
 
-    # =======================================================
-    # Normalize Scores
-    # =======================================================
+    # ======================================================
+    # Build Score Map
+    # ======================================================
 
-    def _normalize_scores(
+    def _build_score_map(
         self,
         results: list[dict],
     ) -> dict[int, float]:
         """
-        Normalize scores using min-max normalization.
+        Build a dictionary mapping chunk IDs
+        to their original retrieval scores.
+
+        No min-max normalization is performed.
+
+        Keeping the original scores prevents a weak
+        candidate from becoming artificially strong
+        merely because it was the best candidate
+        within its own retrieval set.
         """
 
         if not results:
             return {}
 
-        scores = [
-            float(result["score"])
+        return {
+            result["chunk"].id: self._clamp_score(
+                float(result["score"])
+            )
             for result in results
-        ]
+        }
 
-        minimum = min(scores)
-        maximum = max(scores)
+    # ======================================================
+    # Clamp Score
+    # ======================================================
 
-        # ---------------------------------------------------
-        # All scores identical
-        # ---------------------------------------------------
+    def _clamp_score(
+        self,
+        score: float,
+    ) -> float:
+        """
+        Keep retrieval scores within the expected
+        0.0 - 1.0 range.
+        """
 
-        if maximum == minimum:
-
-            return {
-                result["chunk"].id: 1.0
-                for result in results
-            }
-
-        normalized = {}
-
-        for result in results:
-
-            score = float(
-                result["score"]
-            )
-
-            normalized[
-                result["chunk"].id
-            ] = (
-                (score - minimum)
-                / (maximum - minimum)
-            )
-
-        return normalized
+        return max(
+            0.0,
+            min(
+                1.0,
+                score,
+            ),
+        )

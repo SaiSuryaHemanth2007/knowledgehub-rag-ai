@@ -1,5 +1,8 @@
 from sqlalchemy.orm import Session
 
+from app.ai.reranker.factory import (
+    RerankerFactory,
+)
 from app.application.services.embeddings.embedding_service import (
     EmbeddingService,
 )
@@ -36,6 +39,8 @@ class RetrievalService:
                     ↓
               Hybrid Scoring
                     ↓
+              Reranker
+                    ↓
               Final Top K
                     ↓
               ContextBuilder
@@ -45,7 +50,6 @@ class RetrievalService:
         self,
         db: Session,
     ):
-
         self.embedding_service = EmbeddingService()
 
         self.chunk_repository = ChunkRepository(
@@ -53,6 +57,8 @@ class RetrievalService:
         )
 
         self.hybrid_search = HybridSearchService()
+
+        self.reranker = RerankerFactory.create()
 
     # =======================================================
     # Build Conversation-Aware Retrieval Query
@@ -65,22 +71,98 @@ class RetrievalService:
     ) -> str:
         """
         Build a retrieval query using the current question
-        and recent conversation history.
+        and limited conversation context.
+
+        The current question is always the primary signal.
+
+        Standalone questions are retrieved using only the
+        current question.
+
+        Short follow-up questions may use recent USER
+        questions as additional context.
+
+        Previous ASSISTANT answers are intentionally excluded
+        from the retrieval query because they can contaminate
+        semantic and keyword retrieval.
         """
+
+        question = question.strip()
+
+        if not question:
+            return question
+
+        # ---------------------------------------------------
+        # No conversation history
+        # ---------------------------------------------------
 
         if not history:
             return question
 
-        history_lines = []
+        # ---------------------------------------------------
+        # Determine whether the question likely depends
+        # on previous conversation context.
+        # ---------------------------------------------------
 
-        recent_history = history[-4:]
+        question_lower = question.lower()
 
-        for message in recent_history:
+        follow_up_phrases = (
+            "it",
+            "this",
+            "that",
+            "they",
+            "them",
+            "these",
+            "those",
+            "he",
+            "she",
+            "its",
+            "their",
+            "the device",
+            "the model",
+            "the system",
+            "the agent",
+            "the document",
+            "the file",
+            "what does it",
+            "how does it",
+            "why does it",
+            "where does it",
+            "which one",
+        )
+
+        words = question_lower.split()
+
+        requires_context = (
+            len(words) <= 8
+            or any(
+                phrase in question_lower
+                for phrase in follow_up_phrases
+            )
+        )
+
+        # ---------------------------------------------------
+        # Standalone question
+        #
+        # Do not include conversation history.
+        # ---------------------------------------------------
+
+        if not requires_context:
+            return question
+
+        # ---------------------------------------------------
+        # Collect recent USER questions only.
+        #
+        # Previous assistant answers are excluded.
+        # ---------------------------------------------------
+
+        recent_user_questions = []
+
+        for message in reversed(history):
 
             role = getattr(
                 message,
                 "role",
-                "unknown",
+                "",
             )
 
             content = getattr(
@@ -89,22 +171,36 @@ class RetrievalService:
                 "",
             )
 
-            if not content:
-                continue
+            if (
+                role.lower() == "user"
+                and content
+            ):
+                recent_user_questions.append(
+                    content.strip()
+                )
 
-            history_lines.append(
-                f"{role.capitalize()}: {content}"
-            )
+            if len(recent_user_questions) >= 2:
+                break
 
-        if not history_lines:
+        # ---------------------------------------------------
+        # No usable user history
+        # ---------------------------------------------------
+
+        if not recent_user_questions:
             return question
 
+        recent_user_questions.reverse()
+
         history_text = "\n".join(
-            history_lines
+            recent_user_questions
         )
 
+        # ---------------------------------------------------
+        # Build retrieval query
+        # ---------------------------------------------------
+
         return f"""
-Previous conversation:
+Previous user questions:
 
 {history_text}
 
@@ -125,7 +221,7 @@ Current question:
     ) -> list[dict]:
         """
         Retrieve relevant document chunks using
-        hybrid retrieval.
+        hybrid retrieval followed by reranking.
 
         Two independent retrieval strategies are used:
 
@@ -136,6 +232,8 @@ Current question:
 
         The candidates are then combined using
         HybridSearchService.
+
+        The hybrid results are passed to the reranker.
 
         Finally, only the configured number of
         top results are returned.
@@ -210,6 +308,16 @@ Current question:
         results = self.hybrid_search.combine(
             vector_results=vector_results,
             keyword_results=keyword_results,
+            limit=candidate_limit,
+        )
+
+        # ===================================================
+        # Reranking
+        # ===================================================
+
+        results = self.reranker.rerank(
+            query=retrieval_query,
+            candidates=results,
             limit=final_limit,
         )
 
@@ -290,7 +398,7 @@ Current question:
         )
 
         print()
-        print("Final Hybrid Results:")
+        print("Final Reranked Results:")
 
         if not results:
 

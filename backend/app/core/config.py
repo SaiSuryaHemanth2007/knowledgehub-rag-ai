@@ -3,7 +3,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings:
+class Settings(BaseSettings):
     # ==========================
     # Application
     # ==========================
@@ -54,11 +54,9 @@ class Settings:
 
     GOOGLE_API_KEY: str = ""
 
-    GROQ_API_KEY: str
+    GROQ_API_KEY: str = ""
 
     GROQ_MODEL: str = "openai/gpt-oss-120b"
-
-    # Future Providers
 
     OPENAI_API_KEY: str = ""
 
@@ -76,18 +74,9 @@ class Settings:
     # Retrieval
     # ==========================
 
-    # Number of final chunks returned
-    # by the retrieval pipeline.
-
     RETRIEVAL_LIMIT: int = 5
 
-    # Number of candidates retrieved from
-    # each retrieval strategy before hybrid ranking.
-
     RETRIEVAL_CANDIDATE_LIMIT: int = 20
-
-    # Minimum vector similarity score required
-    # for a vector result to be considered.
 
     RETRIEVAL_MIN_SCORE: float = 0.60
 
@@ -95,22 +84,9 @@ class Settings:
     # Hybrid Search
     # ==========================
 
-    # Semantic/vector search weight.
-
     VECTOR_SEARCH_WEIGHT: float = 0.70
 
-    # PostgreSQL keyword search weight.
-
     KEYWORD_SEARCH_WEIGHT: float = 0.30
-
-    # Optional hybrid relevance threshold.
-    #
-    # This value is reserved for future relevance
-    # filtering and is NOT applied during candidate
-    # generation.
-    #
-    # The reranker is responsible for final
-    # relevance selection.
 
     HYBRID_MIN_SCORE: float = 0.60
 
@@ -118,26 +94,13 @@ class Settings:
     # Reranking
     # ==========================
 
-    # Enable reranking.
-
     RERANKER_ENABLED: bool = True
-
-    # Maximum number of hybrid candidates passed
-    # to the reranker.
 
     RERANKER_CANDIDATE_LIMIT: int = 20
 
-    # Number of final chunks returned
-    # after reranking.
-
     RERANKER_TOP_K: int = 5
 
-    # Reranker provider.
-    #
-    # Currently using the passthrough implementation
-    # while the production reranker is being implemented.
-
-    RERANKER_PROVIDER: str = "passthrough"
+    RERANKER_PROVIDER: str = "lexical"
 
     # ==========================
     # Logging
@@ -151,7 +114,7 @@ class Settings:
 
     model_config = SettingsConfigDict(
         env_file=".env",
-        case_sensitive=True,
+        case_sensitive=False,
         extra="ignore",
     )
 

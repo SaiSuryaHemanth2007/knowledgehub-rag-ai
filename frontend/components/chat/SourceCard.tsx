@@ -40,15 +40,13 @@ export default function SourceCard({
 
         </div>
 
-
-        {/* Similarity Score */}
+        {/* Final Reranker Relevance Score */}
 
         <div className="shrink-0 rounded-lg bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">
           {(score * 100).toFixed(1)}%
         </div>
 
       </div>
-
 
       {/* =================================================
           Source Metadata
@@ -61,11 +59,10 @@ export default function SourceCard({
         </span>
 
         <span>
-          Semantic similarity
+          Relevance
         </span>
 
       </div>
-
 
       {/* =================================================
           Preview

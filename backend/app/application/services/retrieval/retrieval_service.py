@@ -29,21 +29,21 @@ class RetrievalService:
             ↓
         Query Embedding
             ↓
-        ┌───────────────────────┐
-        │                       │
-        ↓                       ↓
-    Vector Search          Keyword Search
-        ↓                       ↓
-    Candidates              Candidates
-        └───────────┬───────────┘
-                    ↓
-              Hybrid Scoring
-                    ↓
-              Reranker
-                    ↓
-              Final Top K
-                    ↓
-              ContextBuilder
+        ┌───────────────────────────────┐
+        │                               │
+        ↓                               ↓
+    Vector Search                  Keyword Search
+        ↓                               ↓
+    Candidates                    Candidates
+        └───────────────┬───────────────┘
+                        ↓
+                  Hybrid Scoring
+                        ↓
+                    Reranker
+                        ↓
+                    Final Top K
+                        ↓
+                  ContextBuilder
     """
 
     def __init__(
@@ -77,137 +77,58 @@ class RetrievalService:
 
         Standalone questions are retrieved using only the
         current question.
-
-        Short follow-up questions may use recent USER
-        questions as additional context.
-
-        Previous ASSISTANT answers are intentionally excluded
-        from the retrieval query because they can contaminate
-        semantic and keyword retrieval.
         """
 
         question = question.strip()
 
-        if not question:
-            return question
-
-        # ---------------------------------------------------
-        # No conversation history
-        # ---------------------------------------------------
-
         if not history:
             return question
 
-        # ---------------------------------------------------
-        # Determine whether the question likely depends
-        # on previous conversation context.
-        # ---------------------------------------------------
+        recent_history = history[-4:]
 
-        question_lower = question.lower()
+        history_parts = []
 
-        follow_up_phrases = (
-            "it",
-            "this",
-            "that",
-            "they",
-            "them",
-            "these",
-            "those",
-            "he",
-            "she",
-            "its",
-            "their",
-            "the device",
-            "the model",
-            "the system",
-            "the agent",
-            "the document",
-            "the file",
-            "what does it",
-            "how does it",
-            "why does it",
-            "where does it",
-            "which one",
-        )
+        for message in recent_history:
 
-        words = question_lower.split()
+            if not isinstance(message, dict):
+                continue
 
-        requires_context = (
-            len(words) <= 8
-            or any(
-                phrase in question_lower
-                for phrase in follow_up_phrases
-            )
-        )
-
-        # ---------------------------------------------------
-        # Standalone question
-        #
-        # Do not include conversation history.
-        # ---------------------------------------------------
-
-        if not requires_context:
-            return question
-
-        # ---------------------------------------------------
-        # Collect recent USER questions only.
-        #
-        # Previous assistant answers are excluded.
-        # ---------------------------------------------------
-
-        recent_user_questions = []
-
-        for message in reversed(history):
-
-            role = getattr(
-                message,
+            role = message.get(
                 "role",
                 "",
             )
 
-            content = getattr(
-                message,
+            content = message.get(
                 "content",
                 "",
             )
 
-            if (
-                role.lower() == "user"
-                and content
-            ):
-                recent_user_questions.append(
-                    content.strip()
-                )
+            if not content:
+                continue
 
-            if len(recent_user_questions) >= 2:
-                break
+            if role not in {
+                "user",
+                "assistant",
+            }:
+                continue
 
-        # ---------------------------------------------------
-        # No usable user history
-        # ---------------------------------------------------
+            history_parts.append(
+                f"{role}: {content}"
+            )
 
-        if not recent_user_questions:
+        if not history_parts:
             return question
 
-        recent_user_questions.reverse()
-
-        history_text = "\n".join(
-            recent_user_questions
+        context = "\n".join(
+            history_parts
         )
 
-        # ---------------------------------------------------
-        # Build retrieval query
-        # ---------------------------------------------------
-
-        return f"""
-Previous user questions:
-
-{history_text}
-
-Current question:
-
-{question}
-""".strip()
+        return (
+            f"Conversation context:\n"
+            f"{context}\n\n"
+            f"Current question:\n"
+            f"{question}"
+        )
 
     # =======================================================
     # Retrieve
@@ -354,11 +275,22 @@ Current question:
         """
         Log retrieval information for debugging
         and evaluation.
+
+        Displays:
+
+        - Hybrid score
+        - Final rerank score
+        - Vector score
+        - Keyword score
+        - Query term coverage
+        - Phrase relevance
         """
 
         print()
         print("=" * 70)
-        print("HYBRID RETRIEVAL DIAGNOSTICS")
+        print(
+            "HYBRID + RERANKER RETRIEVAL DIAGNOSTICS"
+        )
         print("=" * 70)
 
         print(
@@ -398,7 +330,9 @@ Current question:
         )
 
         print()
-        print("Final Reranked Results:")
+        print(
+            "Final Reranked Results:"
+        )
 
         if not results:
 
@@ -415,15 +349,57 @@ Current question:
 
                 chunk = result["chunk"]
 
+                hybrid_score = float(
+                    result.get(
+                        "score",
+                        0.0,
+                    )
+                )
+
+                rerank_score = float(
+                    result.get(
+                        "rerank_score",
+                        hybrid_score,
+                    )
+                )
+
+                vector_score = float(
+                    result.get(
+                        "vector_score",
+                        0.0,
+                    )
+                )
+
+                keyword_score = float(
+                    result.get(
+                        "keyword_score",
+                        0.0,
+                    )
+                )
+
+                term_coverage = float(
+                    result.get(
+                        "term_coverage",
+                        0.0,
+                    )
+                )
+
+                phrase_score = float(
+                    result.get(
+                        "phrase_score",
+                        0.0,
+                    )
+                )
+
                 print(
                     f"  {index}. "
                     f"Chunk {chunk.chunk_index} "
-                    f"| Hybrid: "
-                    f"{result['score']:.4f} "
-                    f"| Vector: "
-                    f"{result['vector_score']:.4f} "
-                    f"| Keyword: "
-                    f"{result['keyword_score']:.4f}"
+                    f"| Hybrid: {hybrid_score:.4f} "
+                    f"| Rerank: {rerank_score:.4f} "
+                    f"| Vector: {vector_score:.4f} "
+                    f"| Keyword: {keyword_score:.4f} "
+                    f"| Coverage: {term_coverage:.4f} "
+                    f"| Phrase: {phrase_score:.4f}"
                 )
 
         print("=" * 70)

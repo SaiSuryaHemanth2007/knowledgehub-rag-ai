@@ -272,7 +272,7 @@ class RAGService:
                         chunk.chunk_index
                     ),
 
-                    "score": result["score"],
+                    "score": result.get("rerank_score", result["score"]),
 
                     "preview": (
                         chunk.content[:180]

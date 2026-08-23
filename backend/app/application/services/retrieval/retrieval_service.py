@@ -70,65 +70,409 @@ class RetrievalService:
         history: list | None = None,
     ) -> str:
         """
-        Build a retrieval query using the current question
-        and limited conversation context.
+        Build a focused retrieval query.
 
-        The current question is always the primary signal.
+        Normal question:
 
-        Standalone questions are retrieved using only the
-        current question.
+            What is generative AI?
+
+        Follow-up question:
+
+            Previous:
+                What is generative AI?
+
+            Current:
+                What are its main applications?
+
+        Becomes:
+
+            Topic: What is generative AI?
+            Intent: applications, use cases, examples,
+                     business functions
+            Question: What are its main applications?
+
+        Conversation history is used only when a
+        previous user question exists.
         """
 
-        question = question.strip()
+        question = (
+            question or ""
+        ).strip()
+
+        if not question:
+            return ""
+
+        # ---------------------------------------------------
+        # No history
+        # ---------------------------------------------------
 
         if not history:
             return question
 
-        recent_history = history[-4:]
+        # ---------------------------------------------------
+        # Keep recent messages only
+        # ---------------------------------------------------
 
-        history_parts = []
+        recent_history = history[-6:]
+
+        user_messages = []
 
         for message in recent_history:
 
-            if not isinstance(message, dict):
+            # ------------------------------------------------
+            # Dictionary message
+            # ------------------------------------------------
+
+            if isinstance(
+                message,
+                dict,
+            ):
+                role = message.get(
+                    "role",
+                    "",
+                )
+
+                content = message.get(
+                    "content",
+                    "",
+                )
+
+            # ------------------------------------------------
+            # SQLAlchemy MessageModel
+            # ------------------------------------------------
+
+            else:
+                role = getattr(
+                    message,
+                    "role",
+                    "",
+                )
+
+                content = getattr(
+                    message,
+                    "content",
+                    "",
+                )
+
+            # ------------------------------------------------
+            # Only previous user questions are needed
+            # as the main topic signal.
+            # ------------------------------------------------
+
+            if role != "user":
                 continue
-
-            role = message.get(
-                "role",
-                "",
-            )
-
-            content = message.get(
-                "content",
-                "",
-            )
 
             if not content:
                 continue
 
-            if role not in {
-                "user",
-                "assistant",
-            }:
-                continue
+            content = str(
+                content
+            ).strip()
 
-            history_parts.append(
-                f"{role}: {content}"
-            )
+            if content:
+                user_messages.append(
+                    content
+                )
 
-        if not history_parts:
+        # ---------------------------------------------------
+        # No usable user history
+        # ---------------------------------------------------
+
+        if not user_messages:
             return question
 
-        context = "\n".join(
-            history_parts
+        # ---------------------------------------------------
+        # Need a previous question to establish the topic.
+        #
+        # The current question is normally not included
+        # in history because chat.py loads history before
+        # saving the current question.
+        #
+        # But this also safely handles cases where it is.
+        # ---------------------------------------------------
+
+        previous_question = user_messages[-1]
+
+        # ---------------------------------------------------
+        # Detect generic follow-up intent
+        # ---------------------------------------------------
+
+        intent_terms = (
+            self._expand_follow_up_query(
+                question
+            )
         )
 
+        # ---------------------------------------------------
+        # If the question is not a recognized follow-up,
+        # preserve the existing conversation-aware behavior.
+        # ---------------------------------------------------
+
+        if not intent_terms:
+            history_parts = []
+
+            for message in recent_history:
+
+                if isinstance(
+                    message,
+                    dict,
+                ):
+                    role = message.get(
+                        "role",
+                        "",
+                    )
+
+                    content = message.get(
+                        "content",
+                        "",
+                    )
+
+                else:
+                    role = getattr(
+                        message,
+                        "role",
+                        "",
+                    )
+
+                    content = getattr(
+                        message,
+                        "content",
+                        "",
+                    )
+
+                if role not in {
+                    "user",
+                    "assistant",
+                }:
+                    continue
+
+                if not content:
+                    continue
+
+                content = str(
+                    content
+                ).strip()
+
+                if not content:
+                    continue
+
+                history_parts.append(
+                    f"{role}: {content}"
+                )
+
+            if not history_parts:
+                return question
+
+            context = "\n".join(
+                history_parts
+            )
+
+            return (
+                f"Conversation context:\n"
+                f"{context}\n\n"
+                f"Current question:\n"
+                f"{question}"
+            )
+
+        # ---------------------------------------------------
+        # Focused follow-up retrieval query
+        # ---------------------------------------------------
+
         return (
-            f"Conversation context:\n"
-            f"{context}\n\n"
-            f"Current question:\n"
-            f"{question}"
+            f"Topic: {previous_question}\n"
+            f"Intent: {intent_terms}\n"
+            f"Question: {question}"
         )
+
+    # =======================================================
+    # Follow-Up Intent Expansion
+    # =======================================================
+
+    def _expand_follow_up_query(
+        self,
+        question: str,
+    ) -> str:
+        """
+        Expand common follow-up questions into
+        retrieval-friendly concepts.
+
+        This is intentionally generic and does not
+        contain document-specific terminology.
+
+        Examples:
+
+            What are its main applications?
+
+                →
+            applications, use cases, examples,
+            business functions
+
+            What are its benefits?
+
+                →
+            benefits, advantages, value, impact
+
+            Give me examples.
+
+                →
+            examples, use cases, practical examples
+        """
+
+        normalized = (
+            question or ""
+        ).lower().strip()
+
+        if not normalized:
+            return ""
+
+        # ===================================================
+        # Applications / Use Cases
+        # ===================================================
+
+        application_patterns = (
+            "application",
+            "applications",
+            "use case",
+            "use cases",
+            "uses",
+            "used for",
+            "used in",
+            "where is it used",
+            "where is this used",
+            "what can it be used for",
+            "what are its uses",
+        )
+
+        if any(
+            pattern in normalized
+            for pattern in application_patterns
+        ):
+            return (
+                "applications, "
+                "use cases, "
+                "examples, "
+                "business functions"
+            )
+
+        # ===================================================
+        # Benefits / Advantages
+        # ===================================================
+
+        benefit_patterns = (
+            "benefit",
+            "benefits",
+            "advantage",
+            "advantages",
+            "why is it useful",
+            "why is this useful",
+        )
+
+        if any(
+            pattern in normalized
+            for pattern in benefit_patterns
+        ):
+            return (
+                "benefits, "
+                "advantages, "
+                "value, "
+                "impact"
+            )
+
+        # ===================================================
+        # Examples
+        # ===================================================
+
+        example_patterns = (
+            "example",
+            "examples",
+            "give me an example",
+            "give examples",
+            "what are some examples",
+        )
+
+        if any(
+            pattern in normalized
+            for pattern in example_patterns
+        ):
+            return (
+                "examples, "
+                "use cases, "
+                "practical examples"
+            )
+
+        # ===================================================
+        # Features / Capabilities
+        # ===================================================
+
+        feature_patterns = (
+            "feature",
+            "features",
+            "capabilities",
+            "capability",
+            "what can it do",
+            "what does it do",
+        )
+
+        if any(
+            pattern in normalized
+            for pattern in feature_patterns
+        ):
+            return (
+                "features, "
+                "capabilities, "
+                "functionality"
+            )
+
+        # ===================================================
+        # Comparison
+        # ===================================================
+
+        comparison_patterns = (
+            "difference",
+            "differences",
+            "different from",
+            "compare",
+            "comparison",
+            "versus",
+            "vs",
+        )
+
+        if any(
+            pattern in normalized
+            for pattern in comparison_patterns
+        ):
+            return (
+                "comparison, "
+                "differences, "
+                "similarities, "
+                "advantages"
+            )
+
+        # ===================================================
+        # Definition / Explanation
+        # ===================================================
+
+        definition_patterns = (
+            "what is",
+            "what are",
+            "define",
+            "definition",
+            "meaning",
+            "explain",
+        )
+
+        if any(
+            pattern in normalized
+            for pattern in definition_patterns
+        ):
+            return (
+                "definition, "
+                "meaning, "
+                "concept, "
+                "fundamentals"
+            )
+
+        return ""
 
     # =======================================================
     # Retrieve
@@ -284,13 +628,17 @@ class RetrievalService:
         - Keyword score
         - Query term coverage
         - Phrase relevance
+        - Concept score
+        - Definition score
         """
 
         print()
         print("=" * 70)
+
         print(
             "HYBRID + RERANKER RETRIEVAL DIAGNOSTICS"
         )
+
         print("=" * 70)
 
         print(
@@ -330,6 +678,7 @@ class RetrievalService:
         )
 
         print()
+
         print(
             "Final Reranked Results:"
         )
@@ -391,6 +740,20 @@ class RetrievalService:
                     )
                 )
 
+                concept_score = float(
+                    result.get(
+                        "concept_score",
+                        0.0,
+                    )
+                )
+
+                definition_score = float(
+                    result.get(
+                        "definition_score",
+                        0.0,
+                    )
+                )
+
                 print(
                     f"  {index}. "
                     f"Chunk {chunk.chunk_index} "
@@ -399,7 +762,9 @@ class RetrievalService:
                     f"| Vector: {vector_score:.4f} "
                     f"| Keyword: {keyword_score:.4f} "
                     f"| Coverage: {term_coverage:.4f} "
-                    f"| Phrase: {phrase_score:.4f}"
+                    f"| Phrase: {phrase_score:.4f} "
+                    f"| Concept: {concept_score:.4f} "
+                    f"| Definition: {definition_score:.4f}"
                 )
 
         print("=" * 70)

@@ -7,20 +7,34 @@ class LexicalReranker(BaseReranker):
     """
     Lightweight dependency-free reranker.
 
-    The hybrid retrieval score remains the primary signal.
-    Lexical signals provide additional evidence rather than
-    dominating semantic retrieval.
+    Combines:
+
+        - Hybrid semantic/keyword relevance
+        - Query term coverage
+        - Phrase relevance
+        - Concept matching
+        - Definition/question-answer evidence
 
     Score:
 
-        Hybrid score       -> 70%
-        Term coverage      -> 20%
-        Phrase relevance   -> 10%
+        Hybrid relevance    -> 60%
+        Term coverage       -> 15%
+        Phrase relevance    -> 10%
+        Concept matching    -> 10%
+        Definition evidence -> 5%
+
+    The hybrid score remains the primary signal.
     """
 
-    HYBRID_WEIGHT = 0.70
-    TERM_COVERAGE_WEIGHT = 0.20
+    HYBRID_WEIGHT = 0.60
+    TERM_COVERAGE_WEIGHT = 0.15
     PHRASE_WEIGHT = 0.10
+    CONCEPT_WEIGHT = 0.10
+    DEFINITION_WEIGHT = 0.05
+
+    # ==================================================
+    # Public API
+    # ==================================================
 
     def rerank(
         self,
@@ -29,8 +43,9 @@ class LexicalReranker(BaseReranker):
         limit: int = 5,
     ) -> list[dict]:
         """
-        Rerank candidates using hybrid relevance plus
-        lightweight lexical relevance.
+        Rerank candidates using hybrid relevance,
+        lexical relevance, concept matching, and
+        definition evidence.
         """
 
         if not candidates:
@@ -44,6 +59,7 @@ class LexicalReranker(BaseReranker):
         reranked = []
 
         for candidate in candidates:
+
             chunk = candidate["chunk"]
 
             content = (
@@ -67,6 +83,16 @@ class LexicalReranker(BaseReranker):
                 content_lower,
             )
 
+            concept_score = self._concept_score(
+                query,
+                content_lower,
+            )
+
+            definition_score = self._definition_score(
+                query,
+                content_lower,
+            )
+
             rerank_score = (
                 hybrid_score
                 * self.HYBRID_WEIGHT
@@ -76,6 +102,12 @@ class LexicalReranker(BaseReranker):
             ) + (
                 phrase_score
                 * self.PHRASE_WEIGHT
+            ) + (
+                concept_score
+                * self.CONCEPT_WEIGHT
+            ) + (
+                definition_score
+                * self.DEFINITION_WEIGHT
             )
 
             result = dict(candidate)
@@ -92,6 +124,16 @@ class LexicalReranker(BaseReranker):
 
             result["phrase_score"] = round(
                 phrase_score,
+                4,
+            )
+
+            result["concept_score"] = round(
+                concept_score,
+                4,
+            )
+
+            result["definition_score"] = round(
+                definition_score,
                 4,
             )
 
@@ -170,8 +212,6 @@ class LexicalReranker(BaseReranker):
         """
         Calculate the percentage of meaningful query
         terms appearing in the chunk.
-
-        Matching is case-insensitive.
         """
 
         if not query_terms:
@@ -201,8 +241,6 @@ class LexicalReranker(BaseReranker):
     ) -> float:
         """
         Reward meaningful consecutive query terms.
-
-        Matching is case-insensitive.
         """
 
         query_terms = self._tokenize(query)
@@ -231,3 +269,186 @@ class LexicalReranker(BaseReranker):
             matched_phrases
             / len(phrases)
         )
+
+    # ==================================================
+    # Concept Matching
+    # ==================================================
+
+    def _concept_score(
+        self,
+        query: str,
+        content: str,
+    ) -> float:
+        """
+        Detect meaningful contextual matches for
+        Generative AI / GenAI.
+
+        A document title such as:
+
+            The Big Book of Generative AI
+
+        should NOT receive full concept credit.
+
+        Strong contextual matches include:
+
+            What is GenAI?
+            GenAI focuses on...
+            GenAI creates...
+            Generative AI is...
+        """
+
+        query_lower = query.lower()
+        content_lower = content.lower()
+
+        generative_ai_query = bool(
+            re.search(
+                r"\bgenerative\s+ai\b"
+                r"|\bgenai\b"
+                r"|\bgen\s+ai\b",
+                query_lower,
+            )
+        )
+
+        if not generative_ai_query:
+            return 0.0
+
+        score = 0.0
+
+        # ------------------------------------------------
+        # Direct question/reference
+        # ------------------------------------------------
+
+        if re.search(
+            r"\bwhat\s+is\s+"
+            r"(?:genai|gen\s*ai|generative\s+ai)\b",
+            content_lower,
+        ):
+            score = max(score, 1.0)
+
+        # ------------------------------------------------
+        # Strong definition/context patterns
+        # ------------------------------------------------
+
+        contextual_patterns = [
+            r"\bgenai\s+(?:is|focuses|creates|refers)\b",
+            r"\bgen\s*ai\s+(?:is|focuses|creates|refers)\b",
+            r"\bgenerative\s+ai\s+(?:is|focuses|creates|refers)\b",
+            r"\bgenerative\s+artificial\s+intelligence\s+"
+            r"(?:is|focuses|creates|refers)\b",
+        ]
+
+        for pattern in contextual_patterns:
+            if re.search(pattern, content_lower):
+                score = max(score, 1.0)
+
+        # ------------------------------------------------
+        # "GenAI" appearing near meaningful concepts
+        # ------------------------------------------------
+
+        meaningful_context_patterns = [
+            r"\bgenai\b.{0,120}"
+            r"\b(?:models?|content|text|images?|code|"
+            r"synthetic\s+data|traditional\s+ai)\b",
+
+            r"\b(?:models?|content|text|images?|code|"
+            r"synthetic\s+data|traditional\s+ai)\b.{0,120}"
+            r"\bgenai\b",
+        ]
+
+        if any(
+            re.search(
+                pattern,
+                content_lower,
+                flags=re.DOTALL,
+            )
+            for pattern in meaningful_context_patterns
+        ):
+            score = max(score, 0.75)
+
+        # ------------------------------------------------
+        # Generic occurrence only
+        #
+        # This prevents document titles from getting
+        # full concept credit.
+        # ------------------------------------------------
+
+        if score == 0.0:
+
+            generic_occurrence = bool(
+                re.search(
+                    r"\bgenai\b"
+                    r"|\bgen\s+ai\b"
+                    r"|\bgenerative\s+ai\b",
+                    content_lower,
+                )
+            )
+
+            if generic_occurrence:
+                score = 0.20
+
+        return score
+
+    # ==================================================
+    # Definition Evidence
+    # ==================================================
+
+    def _definition_score(
+        self,
+        query: str,
+        content: str,
+    ) -> float:
+        """
+        Detect whether the chunk contains a direct
+        definition or answer to a "What is..." question.
+        """
+
+        query_lower = query.lower()
+        content_lower = content.lower()
+
+        definition_question = bool(
+            re.search(
+                r"\bwhat\s+is\b"
+                r"|\bwhat\s+are\b"
+                r"|\bdefine\b",
+                query_lower,
+            )
+        )
+
+        if not definition_question:
+            return 0.0
+
+        score = 0.0
+
+        # ------------------------------------------------
+        # Direct question in the document
+        # ------------------------------------------------
+
+        if re.search(
+            r"\bwhat\s+is\s+"
+            r"(?:genai|gen\s*ai|generative\s+ai)\b",
+            content_lower,
+        ):
+            score += 0.50
+
+        # ------------------------------------------------
+        # Definition-style statements
+        # ------------------------------------------------
+
+        definition_patterns = [
+            r"\bgenai\s+(?:is|focuses|creates|refers)\b",
+            r"\bgen\s*ai\s+(?:is|focuses|creates|refers)\b",
+            r"\bgenerative\s+ai\s+(?:is|focuses|creates|refers)\b",
+            r"\bgenerative\s+artificial\s+intelligence\s+"
+            r"(?:is|focuses|creates|refers)\b",
+        ]
+
+        if any(
+            re.search(
+                pattern,
+                content_lower,
+            )
+            for pattern in definition_patterns
+        ):
+            score += 0.50
+
+        return min(score, 1.0)

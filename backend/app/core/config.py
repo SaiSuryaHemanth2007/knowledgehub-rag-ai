@@ -102,6 +102,8 @@ class Settings(BaseSettings):
 
     RERANKER_PROVIDER: str = "lexical"
 
+    RERANKER_MIN_SCORE: float = 0.30
+
     # ==========================
     # Logging
     # ==========================

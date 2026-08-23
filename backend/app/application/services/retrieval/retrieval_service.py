@@ -25,25 +25,21 @@ class RetrievalService:
             ↓
         Conversation History
             ↓
-        Retrieval Query
+        Primary Retrieval Query
             ↓
-        Query Embedding
+        Secondary Intent Query
             ↓
-        ┌───────────────────────────────┐
-        │                               │
-        ↓                               ↓
-    Vector Search                  Keyword Search
-        ↓                               ↓
-    Candidates                    Candidates
-        └───────────────┬───────────────┘
-                        ↓
-                  Hybrid Scoring
-                        ↓
-                    Reranker
-                        ↓
-                    Final Top K
-                        ↓
-                  ContextBuilder
+        Multi-Query Vector Search
+            ↓
+        Candidate Fusion
+            ↓
+        Hybrid Scoring
+            ↓
+        Lexical / Concept / Definition Reranking
+            ↓
+        Final Relevance Gate
+            ↓
+        Final Top K
     """
 
     def __init__(
@@ -72,27 +68,12 @@ class RetrievalService:
         """
         Build a focused retrieval query.
 
-        Normal question:
-
-            What is generative AI?
-
-        Follow-up question:
-
-            Previous:
-                What is generative AI?
-
-            Current:
-                What are its main applications?
-
-        Becomes:
+        Example:
 
             Topic: What is generative AI?
             Intent: applications, use cases, examples,
-                     business functions
+                    business functions
             Question: What are its main applications?
-
-        Conversation history is used only when a
-        previous user question exists.
         """
 
         question = (
@@ -102,26 +83,14 @@ class RetrievalService:
         if not question:
             return ""
 
-        # ---------------------------------------------------
-        # No history
-        # ---------------------------------------------------
-
         if not history:
             return question
-
-        # ---------------------------------------------------
-        # Keep recent messages only
-        # ---------------------------------------------------
 
         recent_history = history[-6:]
 
         user_messages = []
 
         for message in recent_history:
-
-            # ------------------------------------------------
-            # Dictionary message
-            # ------------------------------------------------
 
             if isinstance(
                 message,
@@ -137,10 +106,6 @@ class RetrievalService:
                     "",
                 )
 
-            # ------------------------------------------------
-            # SQLAlchemy MessageModel
-            # ------------------------------------------------
-
             else:
                 role = getattr(
                     message,
@@ -153,11 +118,6 @@ class RetrievalService:
                     "content",
                     "",
                 )
-
-            # ------------------------------------------------
-            # Only previous user questions are needed
-            # as the main topic signal.
-            # ------------------------------------------------
 
             if role != "user":
                 continue
@@ -174,28 +134,10 @@ class RetrievalService:
                     content
                 )
 
-        # ---------------------------------------------------
-        # No usable user history
-        # ---------------------------------------------------
-
         if not user_messages:
             return question
 
-        # ---------------------------------------------------
-        # Need a previous question to establish the topic.
-        #
-        # The current question is normally not included
-        # in history because chat.py loads history before
-        # saving the current question.
-        #
-        # But this also safely handles cases where it is.
-        # ---------------------------------------------------
-
         previous_question = user_messages[-1]
-
-        # ---------------------------------------------------
-        # Detect generic follow-up intent
-        # ---------------------------------------------------
 
         intent_terms = (
             self._expand_follow_up_query(
@@ -203,12 +145,8 @@ class RetrievalService:
             )
         )
 
-        # ---------------------------------------------------
-        # If the question is not a recognized follow-up,
-        # preserve the existing conversation-aware behavior.
-        # ---------------------------------------------------
-
         if not intent_terms:
+
             history_parts = []
 
             for message in recent_history:
@@ -274,10 +212,6 @@ class RetrievalService:
                 f"{question}"
             )
 
-        # ---------------------------------------------------
-        # Focused follow-up retrieval query
-        # ---------------------------------------------------
-
         return (
             f"Topic: {previous_question}\n"
             f"Intent: {intent_terms}\n"
@@ -295,27 +229,6 @@ class RetrievalService:
         """
         Expand common follow-up questions into
         retrieval-friendly concepts.
-
-        This is intentionally generic and does not
-        contain document-specific terminology.
-
-        Examples:
-
-            What are its main applications?
-
-                →
-            applications, use cases, examples,
-            business functions
-
-            What are its benefits?
-
-                →
-            benefits, advantages, value, impact
-
-            Give me examples.
-
-                →
-            examples, use cases, practical examples
         """
 
         normalized = (
@@ -325,9 +238,9 @@ class RetrievalService:
         if not normalized:
             return ""
 
-        # ===================================================
+        # ---------------------------------------------------
         # Applications / Use Cases
-        # ===================================================
+        # ---------------------------------------------------
 
         application_patterns = (
             "application",
@@ -354,9 +267,9 @@ class RetrievalService:
                 "business functions"
             )
 
-        # ===================================================
-        # Benefits / Advantages
-        # ===================================================
+        # ---------------------------------------------------
+        # Benefits
+        # ---------------------------------------------------
 
         benefit_patterns = (
             "benefit",
@@ -378,9 +291,9 @@ class RetrievalService:
                 "impact"
             )
 
-        # ===================================================
+        # ---------------------------------------------------
         # Examples
-        # ===================================================
+        # ---------------------------------------------------
 
         example_patterns = (
             "example",
@@ -400,9 +313,9 @@ class RetrievalService:
                 "practical examples"
             )
 
-        # ===================================================
-        # Features / Capabilities
-        # ===================================================
+        # ---------------------------------------------------
+        # Features
+        # ---------------------------------------------------
 
         feature_patterns = (
             "feature",
@@ -423,9 +336,9 @@ class RetrievalService:
                 "functionality"
             )
 
-        # ===================================================
+        # ---------------------------------------------------
         # Comparison
-        # ===================================================
+        # ---------------------------------------------------
 
         comparison_patterns = (
             "difference",
@@ -448,9 +361,9 @@ class RetrievalService:
                 "advantages"
             )
 
-        # ===================================================
-        # Definition / Explanation
-        # ===================================================
+        # ---------------------------------------------------
+        # Definition
+        # ---------------------------------------------------
 
         definition_patterns = (
             "what is",
@@ -475,6 +388,345 @@ class RetrievalService:
         return ""
 
     # =======================================================
+    # Build Secondary Retrieval Query
+    # =======================================================
+
+    def _build_secondary_retrieval_query(
+        self,
+        question: str,
+        history: list | None = None,
+    ) -> str:
+        """
+        Build an intent-focused retrieval query.
+
+        Example:
+
+            Generative AI applications use cases
+            business functions customer support
+            sales marketing data analysis reporting
+        """
+
+        if not history:
+            return ""
+
+        intent_terms = (
+            self._expand_follow_up_query(
+                question
+            )
+        )
+
+        if not intent_terms:
+            return ""
+
+        topic = ""
+
+        recent_history = history[-6:]
+
+        for message in reversed(
+            recent_history
+        ):
+
+            if isinstance(
+                message,
+                dict,
+            ):
+                role = message.get(
+                    "role",
+                    "",
+                )
+
+                content = message.get(
+                    "content",
+                    "",
+                )
+
+            else:
+                role = getattr(
+                    message,
+                    "role",
+                    "",
+                )
+
+                content = getattr(
+                    message,
+                    "content",
+                    "",
+                )
+
+            if role != "user":
+                continue
+
+            if not content:
+                continue
+
+            topic = str(
+                content
+            ).strip()
+
+            if topic:
+                break
+
+        if not topic:
+            return ""
+
+        return (
+            f"{topic} "
+            f"{intent_terms} "
+            f"customer support "
+            f"sales marketing "
+            f"data analysis reporting"
+        )
+
+    # =======================================================
+    # Candidate Fusion
+    # =======================================================
+
+    def _merge_candidate_results(
+        self,
+        result_sets: list[list[dict]],
+        limit: int,
+    ) -> list[dict]:
+        """
+        Merge multiple vector retrieval result sets.
+
+        A chunk can be retrieved by both primary and
+        secondary queries.
+
+        Preserve:
+
+            primary_score
+            secondary_score
+            best score
+        """
+
+        merged = {}
+
+        for set_index, result_set in enumerate(
+            result_sets
+        ):
+
+            is_secondary = (
+                set_index > 0
+            )
+
+            for result in result_set:
+
+                chunk = result.get(
+                    "chunk"
+                )
+
+                if chunk is None:
+                    continue
+
+                chunk_id = getattr(
+                    chunk,
+                    "id",
+                    None,
+                )
+
+                if chunk_id is None:
+                    chunk_id = id(
+                        chunk
+                    )
+
+                score = float(
+                    result.get(
+                        "score",
+                        0.0,
+                    )
+                )
+
+                existing = merged.get(
+                    chunk_id
+                )
+
+                if existing is None:
+
+                    merged[chunk_id] = {
+                        "chunk": chunk,
+                        "score": score,
+                        "primary_score": (
+                            0.0
+                            if is_secondary
+                            else score
+                        ),
+                        "secondary_score": (
+                            score
+                            if is_secondary
+                            else 0.0
+                        ),
+                    }
+
+                    continue
+
+                # ------------------------------------------------
+                # Preserve strongest score
+                # ------------------------------------------------
+
+                existing_score = float(
+                    existing.get(
+                        "score",
+                        0.0,
+                    )
+                )
+
+                if score > existing_score:
+                    existing["score"] = score
+
+                # ------------------------------------------------
+                # Preserve query-specific scores
+                # ------------------------------------------------
+
+                if is_secondary:
+
+                    existing[
+                        "secondary_score"
+                    ] = max(
+                        float(
+                            existing.get(
+                                "secondary_score",
+                                0.0,
+                            )
+                        ),
+                        score,
+                    )
+
+                else:
+
+                    existing[
+                        "primary_score"
+                    ] = max(
+                        float(
+                            existing.get(
+                                "primary_score",
+                                0.0,
+                            )
+                        ),
+                        score,
+                    )
+
+        merged_results = list(
+            merged.values()
+        )
+
+        merged_results.sort(
+            key=lambda item: float(
+                item.get(
+                    "score",
+                    0.0,
+                )
+            ),
+            reverse=True,
+        )
+
+        return merged_results[:limit]
+
+    # =======================================================
+    # Final Relevance Threshold
+    # =======================================================
+
+    def _get_reranker_min_score(self) -> float:
+        """
+        Return the final reranker relevance threshold.
+
+        IMPORTANT:
+
+        RETRIEVAL_MIN_SCORE is the threshold used by
+        vector retrieval.
+
+        It should NOT automatically be reused for
+        reranker scores because the two scoring systems
+        have different distributions.
+
+        If a dedicated setting exists, use it.
+
+        Otherwise use 0.30 as a conservative default
+        based on the current lexical reranker scale.
+        """
+
+        value = getattr(
+            settings,
+            "RERANKER_MIN_SCORE",
+            0.30,
+        )
+
+        try:
+            value = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ):
+            value = 0.30
+
+        return max(
+            0.0,
+            min(
+                1.0,
+                value,
+            ),
+        )
+
+    # =======================================================
+    # Apply Final Relevance Gate
+    # =======================================================
+
+    def _apply_final_relevance_gate(
+        self,
+        results: list[dict],
+        final_limit: int,
+    ) -> list[dict]:
+        """
+        Apply the final relevance threshold AFTER reranking.
+
+        This prevents weak keyword/vector candidates from
+        entering the RAG context.
+
+        Example:
+
+            Rerank = 0.1114
+            Threshold = 0.30
+
+        Candidate is rejected.
+
+        A useful result such as:
+
+            Rerank = 0.6784
+
+        is retained.
+        """
+
+        if not results:
+            return []
+
+        threshold = (
+            self._get_reranker_min_score()
+        )
+
+        filtered_results = []
+
+        for result in results:
+
+            rerank_score = float(
+                result.get(
+                    "rerank_score",
+                    result.get(
+                        "score",
+                        0.0,
+                    ),
+                )
+            )
+
+            if rerank_score >= threshold:
+
+                filtered_results.append(
+                    result
+                )
+
+        return filtered_results[
+            :final_limit
+        ]
+
+    # =======================================================
     # Retrieve
     # =======================================================
 
@@ -485,28 +737,16 @@ class RetrievalService:
         history: list | None = None,
     ) -> list[dict]:
         """
-        Retrieve relevant document chunks using
-        hybrid retrieval followed by reranking.
+        Retrieve relevant document chunks using:
 
-        Two independent retrieval strategies are used:
-
-        1. Vector semantic search.
-        2. PostgreSQL keyword search.
-
-        Both retrieve a larger candidate pool.
-
-        The candidates are then combined using
-        HybridSearchService.
-
-        The hybrid results are passed to the reranker.
-
-        Finally, only the configured number of
-        top results are returned.
+        1. Conversation-aware semantic retrieval.
+        2. Intent-focused semantic retrieval.
+        3. Keyword retrieval.
+        4. Candidate fusion.
+        5. Hybrid scoring.
+        6. Reranking.
+        7. Final reranker relevance gate.
         """
-
-        # ---------------------------------------------------
-        # Final result limit
-        # ---------------------------------------------------
 
         final_limit = (
             limit
@@ -514,16 +754,12 @@ class RetrievalService:
             else settings.RETRIEVAL_LIMIT
         )
 
-        # ---------------------------------------------------
-        # Candidate limit
-        # ---------------------------------------------------
-
         candidate_limit = (
             settings.RETRIEVAL_CANDIDATE_LIMIT
         )
 
         # ---------------------------------------------------
-        # Build retrieval query
+        # Primary Query
         # ---------------------------------------------------
 
         retrieval_query = (
@@ -534,29 +770,87 @@ class RetrievalService:
         )
 
         # ---------------------------------------------------
-        # Generate embedding
+        # Secondary Query
         # ---------------------------------------------------
 
-        query_embedding = (
-            self.embedding_service.generate_embedding(
-                retrieval_query
+        secondary_query = (
+            self._build_secondary_retrieval_query(
+                question=question,
+                history=history,
             )
         )
 
         # ===================================================
-        # Vector Candidate Search
+        # Vector Retrieval
         # ===================================================
+
+        vector_result_sets = []
+
+        primary_results = []
+
+        if retrieval_query:
+
+            primary_embedding = (
+                self.embedding_service.generate_embedding(
+                    retrieval_query
+                )
+            )
+
+            primary_results = (
+                self.chunk_repository.search_by_embedding(
+                    embedding=primary_embedding,
+                    limit=candidate_limit,
+                    min_score=(
+                        settings.RETRIEVAL_MIN_SCORE
+                    ),
+                )
+            )
+
+            vector_result_sets.append(
+                primary_results
+            )
+
+        secondary_results = []
+
+        if (
+            secondary_query
+            and secondary_query
+            != retrieval_query
+        ):
+
+            secondary_embedding = (
+                self.embedding_service.generate_embedding(
+                    secondary_query
+                )
+            )
+
+            secondary_results = (
+                self.chunk_repository.search_by_embedding(
+                    embedding=secondary_embedding,
+                    limit=candidate_limit,
+                    min_score=(
+                        settings.RETRIEVAL_MIN_SCORE
+                    ),
+                )
+            )
+
+            vector_result_sets.append(
+                secondary_results
+            )
+
+        # ---------------------------------------------------
+        # Merge Both Vector Searches
+        # ---------------------------------------------------
 
         vector_results = (
-            self.chunk_repository.search_by_embedding(
-                embedding=query_embedding,
-                limit=candidate_limit,
-                min_score=settings.RETRIEVAL_MIN_SCORE,
+            self._merge_candidate_results(
+                result_sets=vector_result_sets,
+                limit=candidate_limit * 2,
             )
         )
 
         # ===================================================
-        # Keyword Candidate Search
+        # Keyword Retrieval
         # ===================================================
 
         keyword_results = (
@@ -573,17 +867,38 @@ class RetrievalService:
         results = self.hybrid_search.combine(
             vector_results=vector_results,
             keyword_results=keyword_results,
-            limit=candidate_limit,
+            limit=candidate_limit * 2,
         )
 
         # ===================================================
         # Reranking
         # ===================================================
 
+        # IMPORTANT:
+        #
+        # Do NOT limit reranking directly to final_limit.
+        #
+        # We want the reranker to score the entire candidate
+        # pool first. Then we apply the final relevance gate.
+        #
+        # Otherwise, weak candidates could occupy the top-K
+        # slots before stronger candidates are considered.
+
         results = self.reranker.rerank(
             query=retrieval_query,
             candidates=results,
-            limit=final_limit,
+            limit=candidate_limit * 2,
+        )
+
+        # ===================================================
+        # Final Relevance Gate
+        # ===================================================
+
+        results = (
+            self._apply_final_relevance_gate(
+                results=results,
+                final_limit=final_limit,
+            )
         )
 
         # ===================================================
@@ -593,6 +908,7 @@ class RetrievalService:
         self._log_retrieval_diagnostics(
             question=question,
             retrieval_query=retrieval_query,
+            secondary_query=secondary_query,
             vector_results=vector_results,
             keyword_results=keyword_results,
             results=results,
@@ -603,40 +919,31 @@ class RetrievalService:
         return results
 
     # =======================================================
-    # Retrieval Diagnostics
+    # Diagnostics
     # =======================================================
 
     def _log_retrieval_diagnostics(
         self,
         question: str,
         retrieval_query: str,
+        secondary_query: str,
         vector_results: list[dict],
         keyword_results: list[dict],
         results: list[dict],
         final_limit: int,
         candidate_limit: int,
     ) -> None:
-        """
-        Log retrieval information for debugging
-        and evaluation.
 
-        Displays:
-
-        - Hybrid score
-        - Final rerank score
-        - Vector score
-        - Keyword score
-        - Query term coverage
-        - Phrase relevance
-        - Concept score
-        - Definition score
-        """
+        reranker_min_score = (
+            self._get_reranker_min_score()
+        )
 
         print()
         print("=" * 70)
 
         print(
-            "HYBRID + RERANKER RETRIEVAL DIAGNOSTICS"
+            "HYBRID + MULTI-QUERY + RERANKER "
+            "RETRIEVAL DIAGNOSTICS"
         )
 
         print("=" * 70)
@@ -649,6 +956,12 @@ class RetrievalService:
             f"Retrieval Query : {retrieval_query}"
         )
 
+        if secondary_query:
+
+            print(
+                f"Secondary Query : {secondary_query}"
+            )
+
         print(
             f"Candidate Limit : {candidate_limit}"
         )
@@ -658,8 +971,13 @@ class RetrievalService:
         )
 
         print(
-            f"Min Score       : "
+            f"Vector Min Score: "
             f"{settings.RETRIEVAL_MIN_SCORE}"
+        )
+
+        print(
+            f"Reranker Min Score: "
+            f"{reranker_min_score}"
         )
 
         print(
@@ -678,7 +996,6 @@ class RetrievalService:
         )
 
         print()
-
         print(
             "Final Reranked Results:"
         )
@@ -754,6 +1071,34 @@ class RetrievalService:
                     )
                 )
 
+                application_score = float(
+                    result.get(
+                        "application_score",
+                        0.0,
+                    )
+                )
+
+                comparison_score = float(
+                    result.get(
+                        "comparison_score",
+                        0.0,
+                    )
+                )
+
+                primary_score = float(
+                    result.get(
+                        "primary_score",
+                        0.0,
+                    )
+                )
+
+                secondary_score = float(
+                    result.get(
+                        "secondary_score",
+                        0.0,
+                    )
+                )
+
                 print(
                     f"  {index}. "
                     f"Chunk {chunk.chunk_index} "
@@ -761,10 +1106,14 @@ class RetrievalService:
                     f"| Rerank: {rerank_score:.4f} "
                     f"| Vector: {vector_score:.4f} "
                     f"| Keyword: {keyword_score:.4f} "
+                    f"| Primary: {primary_score:.4f} "
+                    f"| Secondary: {secondary_score:.4f} "
                     f"| Coverage: {term_coverage:.4f} "
                     f"| Phrase: {phrase_score:.4f} "
                     f"| Concept: {concept_score:.4f} "
-                    f"| Definition: {definition_score:.4f}"
+                    f"| Definition: {definition_score:.4f} "
+                    f"| Application: {application_score:.4f} "
+                    f"| Comparison: {comparison_score:.4f}"
                 )
 
         print("=" * 70)

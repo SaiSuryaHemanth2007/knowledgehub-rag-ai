@@ -6,13 +6,22 @@ class HybridSearchService:
     Combines vector and keyword retrieval results
     into a single ranked candidate set.
 
+    Supports multi-query retrieval by preserving:
+
+        primary_score
+        secondary_score
+
+    when those scores are available.
+
     Pipeline:
 
-        Vector Results
+        Primary Vector Results
+              +
+        Secondary Vector Results
               +
         Keyword Results
               ↓
-        Score Calibration
+        Score Fusion
               ↓
         Weighted Hybrid Score
               ↓
@@ -30,19 +39,22 @@ class HybridSearchService:
         limit: int = 20,
     ) -> list[dict]:
         """
-        Combine vector and keyword retrieval results
-        using weighted scoring.
+        Combine vector and keyword retrieval results.
+
+        Vector results may contain:
+
+            primary_score
+            secondary_score
+
+        These values are preserved during fusion so that
+        downstream diagnostics and reranking can use them.
 
         IMPORTANT:
 
-        This stage is responsible for candidate ranking,
-        not final relevance classification.
+        HYBRID_MIN_SCORE is intentionally NOT applied here.
 
-        The final relevance decision belongs to the
-        reranking/grounding stage.
-
-        Therefore, HYBRID_MIN_SCORE is intentionally
-        NOT applied here.
+        This stage creates the candidate pool.
+        Final relevance decisions belong to the reranker.
         """
 
         vector_scores = self._build_score_map(
@@ -62,17 +74,61 @@ class HybridSearchService:
         for result in vector_results:
 
             chunk = result["chunk"]
-
             chunk_id = chunk.id
 
-            combined[chunk_id] = {
-                "chunk": chunk,
-                "vector_score": vector_scores.get(
+            item = combined.get(chunk_id)
+
+            if item is None:
+
+                item = {
+                    "chunk": chunk,
+                    "vector_score": 0.0,
+                    "keyword_score": 0.0,
+                    "primary_score": 0.0,
+                    "secondary_score": 0.0,
+                }
+
+                combined[chunk_id] = item
+
+            item["vector_score"] = max(
+                item["vector_score"],
+                vector_scores.get(
                     chunk_id,
                     0.0,
                 ),
-                "keyword_score": 0.0,
-            }
+            )
+
+            # ----------------------------------------------
+            # Preserve multi-query scores
+            # ----------------------------------------------
+
+            if "primary_score" in result:
+
+                item["primary_score"] = max(
+                    item["primary_score"],
+                    self._clamp_score(
+                        float(
+                            result.get(
+                                "primary_score",
+                                0.0,
+                            )
+                        )
+                    ),
+                )
+
+            if "secondary_score" in result:
+
+                item["secondary_score"] = max(
+                    item["secondary_score"],
+                    self._clamp_score(
+                        float(
+                            result.get(
+                                "secondary_score",
+                                0.0,
+                            )
+                        )
+                    ),
+                )
 
         # ==================================================
         # Keyword Results
@@ -81,7 +137,6 @@ class HybridSearchService:
         for result in keyword_results:
 
             chunk = result["chunk"]
-
             chunk_id = chunk.id
 
             if chunk_id not in combined:
@@ -90,13 +145,18 @@ class HybridSearchService:
                     "chunk": chunk,
                     "vector_score": 0.0,
                     "keyword_score": 0.0,
+                    "primary_score": 0.0,
+                    "secondary_score": 0.0,
                 }
 
             combined[chunk_id][
                 "keyword_score"
-            ] = keyword_scores.get(
-                chunk_id,
-                0.0,
+            ] = max(
+                combined[chunk_id]["keyword_score"],
+                keyword_scores.get(
+                    chunk_id,
+                    0.0,
+                ),
             )
 
         # ==================================================
@@ -115,6 +175,18 @@ class HybridSearchService:
                 "keyword_score"
             ]
 
+            primary_score = item[
+                "primary_score"
+            ]
+
+            secondary_score = item[
+                "secondary_score"
+            ]
+
+            # ------------------------------------------------
+            # Normal hybrid score
+            # ------------------------------------------------
+
             hybrid_score = (
                 vector_score
                 * settings.VECTOR_SEARCH_WEIGHT
@@ -126,16 +198,29 @@ class HybridSearchService:
             results.append(
                 {
                     "chunk": item["chunk"],
+
                     "score": round(
                         hybrid_score,
                         4,
                     ),
+
                     "vector_score": round(
                         vector_score,
                         4,
                     ),
+
                     "keyword_score": round(
                         keyword_score,
+                        4,
+                    ),
+
+                    "primary_score": round(
+                        primary_score,
+                        4,
+                    ),
+
+                    "secondary_score": round(
+                        secondary_score,
                         4,
                     ),
                 }
@@ -146,7 +231,11 @@ class HybridSearchService:
         # ==================================================
 
         results.sort(
-            key=lambda result: result["score"],
+            key=lambda result: (
+                result["score"],
+                result["secondary_score"],
+                result["primary_score"],
+            ),
             reverse=True,
         )
 
@@ -166,14 +255,13 @@ class HybridSearchService:
     ) -> dict[int, float]:
         """
         Build a dictionary mapping chunk IDs
-        to their original retrieval scores.
+        to their retrieval scores.
 
         No min-max normalization is performed.
 
-        Keeping the original scores prevents a weak
-        candidate from becoming artificially strong
-        merely because it was the best candidate
-        within its own retrieval set.
+        Keeping original scores prevents a weak candidate
+        from becoming artificially strong merely because it
+        was the best candidate within its own retrieval set.
         """
 
         if not results:
@@ -181,7 +269,12 @@ class HybridSearchService:
 
         return {
             result["chunk"].id: self._clamp_score(
-                float(result["score"])
+                float(
+                    result.get(
+                        "score",
+                        0.0,
+                    )
+                )
             )
             for result in results
         }

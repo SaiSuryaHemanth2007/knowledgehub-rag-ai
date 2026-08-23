@@ -14,23 +14,38 @@ class LexicalReranker(BaseReranker):
         - Phrase relevance
         - Concept matching
         - Definition/question-answer evidence
+        - Application/use-case relevance
+        - Comparison relevance
+        - Query-intent-aware boosting
 
-    Score:
+    Base Score:
 
-        Hybrid relevance    -> 60%
-        Term coverage       -> 15%
-        Phrase relevance    -> 10%
-        Concept matching    -> 10%
-        Definition evidence -> 5%
+        Hybrid relevance       -> 50%
+        Term coverage          -> 10%
+        Phrase relevance       -> 5%
+        Concept matching       -> 10%
+        Definition evidence    -> 5%
+        Application relevance  -> 10%
+        Comparison relevance   -> 10%
 
-    The hybrid score remains the primary signal.
+    Intent Boosts:
+
+        Application intent    -> +20% of application score
+        Definition intent     -> +10% of definition score
+        Comparison intent     -> +20% of comparison score
     """
 
-    HYBRID_WEIGHT = 0.60
-    TERM_COVERAGE_WEIGHT = 0.15
-    PHRASE_WEIGHT = 0.10
+    HYBRID_WEIGHT = 0.50
+    TERM_COVERAGE_WEIGHT = 0.10
+    PHRASE_WEIGHT = 0.05
     CONCEPT_WEIGHT = 0.10
     DEFINITION_WEIGHT = 0.05
+    APPLICATION_WEIGHT = 0.10
+    COMPARISON_WEIGHT = 0.10
+
+    APPLICATION_INTENT_BOOST = 0.20
+    DEFINITION_INTENT_BOOST = 0.10
+    COMPARISON_INTENT_BOOST = 0.20
 
     # ==================================================
     # Public API
@@ -44,8 +59,9 @@ class LexicalReranker(BaseReranker):
     ) -> list[dict]:
         """
         Rerank candidates using hybrid relevance,
-        lexical relevance, concept matching, and
-        definition evidence.
+        lexical relevance, concept matching,
+        definition evidence, application relevance,
+        comparison relevance, and query intent.
         """
 
         if not candidates:
@@ -55,6 +71,18 @@ class LexicalReranker(BaseReranker):
 
         if not query_terms:
             return candidates[:limit]
+
+        application_intent = (
+            self._is_application_query(query)
+        )
+
+        definition_intent = (
+            self._is_definition_query(query)
+        )
+
+        comparison_intent = (
+            self._is_comparison_query(query)
+        )
 
         reranked = []
 
@@ -93,6 +121,20 @@ class LexicalReranker(BaseReranker):
                 content_lower,
             )
 
+            application_score = self._application_score(
+                query,
+                content_lower,
+            )
+
+            comparison_score = self._comparison_score(
+                query,
+                content_lower,
+            )
+
+            # ------------------------------------------------
+            # Base reranking score
+            # ------------------------------------------------
+
             rerank_score = (
                 hybrid_score
                 * self.HYBRID_WEIGHT
@@ -108,7 +150,35 @@ class LexicalReranker(BaseReranker):
             ) + (
                 definition_score
                 * self.DEFINITION_WEIGHT
+            ) + (
+                application_score
+                * self.APPLICATION_WEIGHT
+            ) + (
+                comparison_score
+                * self.COMPARISON_WEIGHT
             )
+
+            # ------------------------------------------------
+            # Query-intent-aware adjustment
+            # ------------------------------------------------
+
+            if application_intent:
+                rerank_score += (
+                    application_score
+                    * self.APPLICATION_INTENT_BOOST
+                )
+
+            if definition_intent:
+                rerank_score += (
+                    definition_score
+                    * self.DEFINITION_INTENT_BOOST
+                )
+
+            if comparison_intent:
+                rerank_score += (
+                    comparison_score
+                    * self.COMPARISON_INTENT_BOOST
+                )
 
             result = dict(candidate)
 
@@ -135,6 +205,28 @@ class LexicalReranker(BaseReranker):
             result["definition_score"] = round(
                 definition_score,
                 4,
+            )
+
+            result["application_score"] = round(
+                application_score,
+                4,
+            )
+
+            result["comparison_score"] = round(
+                comparison_score,
+                4,
+            )
+
+            result["application_intent"] = (
+                application_intent
+            )
+
+            result["definition_intent"] = (
+                definition_intent
+            )
+
+            result["comparison_intent"] = (
+                comparison_intent
             )
 
             reranked.append(result)
@@ -282,19 +374,6 @@ class LexicalReranker(BaseReranker):
         """
         Detect meaningful contextual matches for
         Generative AI / GenAI.
-
-        A document title such as:
-
-            The Big Book of Generative AI
-
-        should NOT receive full concept credit.
-
-        Strong contextual matches include:
-
-            What is GenAI?
-            GenAI focuses on...
-            GenAI creates...
-            Generative AI is...
         """
 
         query_lower = query.lower()
@@ -338,11 +417,14 @@ class LexicalReranker(BaseReranker):
         ]
 
         for pattern in contextual_patterns:
-            if re.search(pattern, content_lower):
+            if re.search(
+                pattern,
+                content_lower,
+            ):
                 score = max(score, 1.0)
 
         # ------------------------------------------------
-        # "GenAI" appearing near meaningful concepts
+        # GenAI near meaningful concepts
         # ------------------------------------------------
 
         meaningful_context_patterns = [
@@ -367,9 +449,6 @@ class LexicalReranker(BaseReranker):
 
         # ------------------------------------------------
         # Generic occurrence only
-        #
-        # This prevents document titles from getting
-        # full concept credit.
         # ------------------------------------------------
 
         if score == 0.0:
@@ -399,7 +478,7 @@ class LexicalReranker(BaseReranker):
     ) -> float:
         """
         Detect whether the chunk contains a direct
-        definition or answer to a "What is..." question.
+        definition or answer to a definition question.
         """
 
         query_lower = query.lower()
@@ -452,3 +531,339 @@ class LexicalReranker(BaseReranker):
             score += 0.50
 
         return min(score, 1.0)
+
+    # ==================================================
+    # Application / Use-Case Relevance
+    # ==================================================
+
+    def _application_score(
+        self,
+        query: str,
+        content: str,
+    ) -> float:
+        """
+        Detect whether a query is asking about
+        applications, use cases, examples, or
+        business functions.
+        """
+
+        query_lower = query.lower()
+        content_lower = content.lower()
+
+        application_query_patterns = [
+            r"\bapplication(?:s)?\b",
+            r"\buse\s+case(?:s)?\b",
+            r"\bexamples?\b",
+            r"\bused\s+for\b",
+            r"\buses?\b",
+            r"\busage\b",
+            r"\bwhere\s+(?:is|are)\b",
+            r"\bbusiness\s+function(?:s)?\b",
+            r"\bpractical\s+example(?:s)?\b",
+            r"\breal[-\s]?world\b",
+        ]
+
+        is_application_query = any(
+            re.search(
+                pattern,
+                query_lower,
+            )
+            for pattern in application_query_patterns
+        )
+
+        if not is_application_query:
+            return 0.0
+
+        application_patterns = [
+            r"\bcustomer\s+support\b",
+            r"\bcustomer\s+service\b",
+            r"\bsupport\s+automation\b",
+            r"\bsales\b",
+            r"\bmarketing\b",
+            r"\bdata\s+analysis\b",
+            r"\bdata\s+analytics\b",
+            r"\breporting\b",
+            r"\blead\s+qualification\b",
+            r"\bpersonalized\s+communications?\b",
+            r"\bcampaign\s+(?:generation|optimization)\b",
+            r"\bcode\s+generation\b",
+            r"\bautomate\s+(?:tasks?|workflows?)\b",
+            r"\bautomation\b",
+            r"\bbusiness\s+functions?\b",
+            r"\breal[-\s]?world\s+(?:scenarios?|examples?)\b",
+            r"\bpractical\s+(?:examples?|applications?)\b",
+            r"\buse\s+cases?\b",
+            r"\bapplied\s+(?:to|across)\b",
+            r"\bapplied\s+across\b",
+            r"\bapplications?\s+(?:include|such\s+as)\b",
+        ]
+
+        matched_patterns = sum(
+            1
+            for pattern in application_patterns
+            if re.search(
+                pattern,
+                content_lower,
+            )
+        )
+
+        if matched_patterns == 0:
+            return 0.0
+
+        return min(
+            matched_patterns / 3.0,
+            1.0,
+        )
+
+    # ==================================================
+    # Comparison Relevance
+    # ==================================================
+
+    def _comparison_score(
+        self,
+        query: str,
+        content: str,
+    ) -> float:
+        """
+        Detect whether a chunk contains useful evidence
+        for a comparison/difference question.
+
+        Strong comparison evidence includes:
+
+            - Generative AI vs traditional AI
+            - classification
+            - prediction
+            - creating new content
+            - traditional AI
+            - model type differences
+            - probabilistic behavior
+            - deterministic behavior
+        """
+
+        if not self._is_comparison_query(query):
+            return 0.0
+
+        content_lower = content.lower()
+
+        score = 0.0
+
+        # ------------------------------------------------
+        # Direct comparison language
+        # ------------------------------------------------
+
+        direct_comparison_patterns = [
+            r"\btraditional\s+ai\b",
+            r"\bgenerative\s+ai\b",
+            r"\bgenai\b",
+            r"\bcompared\s+to\b",
+            r"\bin\s+contrast\b",
+            r"\bunlike\s+traditional\s+ai\b",
+            r"\bdifference\s+between\b",
+            r"\bwhereas\b",
+            r"\bwhile\s+traditional\s+ai\b",
+        ]
+
+        direct_matches = sum(
+            1
+            for pattern in direct_comparison_patterns
+            if re.search(
+                pattern,
+                content_lower,
+            )
+        )
+
+        if direct_matches >= 2:
+            score = max(score, 0.75)
+
+        elif direct_matches == 1:
+            score = max(score, 0.25)
+
+        # ------------------------------------------------
+        # Traditional AI behavior
+        # ------------------------------------------------
+
+        traditional_ai_patterns = [
+            r"\bclassif(?:y|ies|ication)\b",
+            r"\bpredict(?:s|ion)?\b",
+            r"\bspam\b",
+            r"\bforecast(?:s|ing)?\b",
+            r"\btraditional\s+ai\b",
+        ]
+
+        traditional_matches = sum(
+            1
+            for pattern in traditional_ai_patterns
+            if re.search(
+                pattern,
+                content_lower,
+            )
+        )
+
+        # ------------------------------------------------
+        # Generative AI behavior
+        # ------------------------------------------------
+
+        generative_patterns = [
+            r"\bcreate(?:s|d)?\s+new\s+content\b",
+            r"\bgenerat(?:e|es|ed|ing)\b",
+            r"\btext\b",
+            r"\bimages?\b",
+            r"\bcode\b",
+            r"\bsynthetic\s+data\b",
+            r"\bllms?\b",
+            r"\bfoundation\s+models?\b",
+        ]
+
+        generative_matches = sum(
+            1
+            for pattern in generative_patterns
+            if re.search(
+                pattern,
+                content_lower,
+            )
+        )
+
+        # ------------------------------------------------
+        # Strong comparison evidence
+        # ------------------------------------------------
+
+        if (
+            traditional_matches >= 2
+            and generative_matches >= 2
+        ):
+            score = max(score, 1.0)
+
+        elif (
+            traditional_matches >= 1
+            and generative_matches >= 1
+        ):
+            score = max(score, 0.75)
+
+        # ------------------------------------------------
+        # Output behavior comparison
+        # ------------------------------------------------
+
+        behavior_patterns = [
+            r"\bclassification\b.{0,150}\bprediction\b",
+            r"\bprediction\b.{0,150}\bclassification\b",
+            r"\bclassif(?:y|ies|ication)\b.{0,150}"
+            r"\bgenerat(?:e|es|ed|ing)\b",
+            r"\bgenerat(?:e|es|ed|ing)\b.{0,150}"
+            r"\bclassif(?:y|ies|ication)\b",
+            r"\bdeterministic\b",
+            r"\bprobabilistic\b",
+        ]
+
+        if any(
+            re.search(
+                pattern,
+                content_lower,
+                flags=re.DOTALL,
+            )
+            for pattern in behavior_patterns
+        ):
+            score = max(score, 0.75)
+
+        return min(score, 1.0)
+
+    # ==================================================
+    # Application Query Intent
+    # ==================================================
+
+    def _is_application_query(
+        self,
+        query: str,
+    ) -> bool:
+        """
+        Detect questions asking about applications,
+        use cases, examples, or practical usage.
+        """
+
+        query_lower = query.lower()
+
+        patterns = [
+            r"\bapplication(?:s)?\b",
+            r"\buse\s+case(?:s)?\b",
+            r"\bexamples?\b",
+            r"\bused\s+for\b",
+            r"\bhow\s+is\b.*\bused\b",
+            r"\bhow\s+are\b.*\bused\b",
+            r"\bwhere\s+(?:is|are)\b",
+            r"\bbusiness\s+function(?:s)?\b",
+            r"\bpractical\s+(?:example|application)s?\b",
+            r"\breal[-\s]?world\b",
+        ]
+
+        return any(
+            re.search(
+                pattern,
+                query_lower,
+            )
+            for pattern in patterns
+        )
+
+    # ==================================================
+    # Definition Query Intent
+    # ==================================================
+
+    def _is_definition_query(
+        self,
+        query: str,
+    ) -> bool:
+        """
+        Detect questions asking for a definition,
+        explanation, or meaning.
+        """
+
+        query_lower = query.lower()
+
+        patterns = [
+            r"^\s*what\s+is\s+(?:generative\s+ai|genai|gen\s+ai)\b",
+            r"^\s*what\s+does\s+(?:generative\s+ai|genai|gen\s+ai)\s+mean\b",
+            r"\bdefine\s+(?:generative\s+ai|genai|gen\s+ai)\b",
+            r"\bmeaning\s+of\s+(?:generative\s+ai|genai|gen\s+ai)\b",
+        ]
+
+        return any(
+            re.search(
+                pattern,
+                query_lower,
+            )
+            for pattern in patterns
+        )
+
+    # ==================================================
+    # Comparison Query Intent
+    # ==================================================
+
+    def _is_comparison_query(
+        self,
+        query: str,
+    ) -> bool:
+        """
+        Detect questions asking for differences,
+        comparisons, contrasts, or versus-style analysis.
+        """
+
+        query_lower = query.lower()
+
+        patterns = [
+            r"\bdifference\s+between\b",
+            r"\bdifferent\s+from\b",
+            r"\bcompare\b",
+            r"\bcomparison\b",
+            r"\bversus\b",
+            r"\bvs\.?\b",
+            r"\bcontrast\b",
+            r"\bhow\s+is\b.*\bdifferent\b",
+            r"\bhow\s+are\b.*\bdifferent\b",
+            r"\bwhat\s+makes\b.*\bdifferent\b",
+        ]
+
+        return any(
+            re.search(
+                pattern,
+                query_lower,
+            )
+            for pattern in patterns
+        )
